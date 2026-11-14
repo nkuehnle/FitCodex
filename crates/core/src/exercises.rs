@@ -22,6 +22,8 @@ pub struct ExerciseInfo {
     pub setup_note: Option<String>,
     pub primary: Vec<String>,
     pub secondary: Vec<String>,
+    /// Muscles that only grip or hold still: half a secondary.
+    pub minor: Vec<String>,
     pub source: String,
     pub is_custom: bool,
     pub user_modified: bool,
@@ -42,6 +44,8 @@ pub struct ExerciseEdit {
     pub setup_note: Option<String>,
     pub primary: Vec<String>,
     pub secondary: Vec<String>,
+    #[serde(default)]
+    pub minor: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,7 +73,7 @@ fn slugify(s: &str) -> String {
 impl Db {
     /// Exercises, most used first then alphabetical. `only_used` limits to exercises with history.
     pub fn list_exercises(&self, only_used: bool) -> Result<Vec<ExerciseInfo>> {
-        let mut muscles: HashMap<i64, (Vec<String>, Vec<String>)> = HashMap::new();
+        let mut muscles: HashMap<i64, [Vec<String>; 3]> = HashMap::new();
         {
             let mut stmt = self.conn().prepare(
                 "SELECT em.exercise_id, em.muscle_id, em.role FROM exercise_muscle em JOIN muscle m ON m.id = em.muscle_id ORDER BY m.position",
@@ -77,7 +81,12 @@ impl Db {
             for row in stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
                 let (id, m, role) = row?;
                 let e = muscles.entry(id).or_default();
-                if role == "primary" { e.0.push(m) } else { e.1.push(m) }
+                e[match role.as_str() {
+                    "primary" => 0,
+                    "secondary" => 1,
+                    _ => 2,
+                }]
+                .push(m);
             }
         }
         let mut aliases: HashMap<i64, Vec<String>> = HashMap::new();
@@ -111,6 +120,7 @@ impl Db {
                     setup_note: r.get(8)?,
                     primary: Vec::new(),
                     secondary: Vec::new(),
+                    minor: Vec::new(),
                     source: r.get(9)?,
                     is_custom: r.get(10)?,
                     user_modified: r.get(11)?,
@@ -121,9 +131,10 @@ impl Db {
             .collect::<rusqlite::Result<_>>()?;
         out.retain(|e| !only_used || e.sessions > 0);
         for e in &mut out {
-            if let Some((p, s)) = muscles.remove(&e.id) {
+            if let Some([p, s, m]) = muscles.remove(&e.id) {
                 e.primary = p;
                 e.secondary = s;
+                e.minor = m;
             }
             e.aliases = aliases.remove(&e.id).unwrap_or_default();
         }
@@ -143,7 +154,7 @@ impl Db {
             return Err(Error::Format(format!("unknown load mode {:?}", e.load_mode)));
         }
         let mut stmt = self.conn().prepare_cached("SELECT 1 FROM muscle WHERE id = ?1")?;
-        for m in e.primary.iter().chain(&e.secondary) {
+        for m in e.primary.iter().chain(&e.secondary).chain(&e.minor) {
             if stmt.query_row([m], |_| Ok(())).optional()?.is_none() {
                 return Err(Error::Format(format!("unknown muscle {m:?}")));
             }
@@ -151,15 +162,14 @@ impl Db {
         Ok(())
     }
 
-    fn write_muscles(&self, id: i64, primary: &[String], secondary: &[String]) -> Result<()> {
+    fn write_muscles(&self, id: i64, primary: &[String], secondary: &[String], minor: &[String]) -> Result<()> {
         self.conn().execute("DELETE FROM exercise_muscle WHERE exercise_id = ?1", [id])?;
         let mut ins = self.conn().prepare_cached("INSERT OR REPLACE INTO exercise_muscle (exercise_id, muscle_id, role) VALUES (?1, ?2, ?3)")?;
-        for m in secondary {
-            ins.execute(params![id, m, "secondary"])?;
-        }
-        // Primary wins if a muscle is listed in both.
-        for m in primary {
-            ins.execute(params![id, m, "primary"])?;
+        // The larger role wins if a muscle is listed more than once.
+        for (role, list) in [("minor", minor), ("secondary", secondary), ("primary", primary)] {
+            for m in list {
+                ins.execute(params![id, m, role])?;
+            }
         }
         Ok(())
     }
@@ -172,7 +182,7 @@ impl Db {
                  setup_note = ?8, user_modified = 1 WHERE id = ?1",
             params![id, e.name.trim(), e.equipment, e.pattern, e.kind, e.load_mode, e.default_rest_s, e.setup_note],
         )?;
-        self.write_muscles(id, &e.primary, &e.secondary)?;
+        self.write_muscles(id, &e.primary, &e.secondary, &e.minor)?;
         self.rebuild_prs()?;
         Ok(())
     }
@@ -192,7 +202,7 @@ impl Db {
             params![slug, e.name.trim(), e.equipment, e.pattern, e.kind, e.load_mode, e.default_rest_s, e.setup_note],
         )?;
         let id = self.conn().last_insert_rowid();
-        self.write_muscles(id, &e.primary, &e.secondary)?;
+        self.write_muscles(id, &e.primary, &e.secondary, &e.minor)?;
         Ok(id)
     }
 

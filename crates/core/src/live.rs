@@ -622,7 +622,11 @@ impl Db {
                 let mut ms = self.conn().prepare_cached("SELECT muscle_id, role FROM exercise_muscle em JOIN muscle m ON m.id = em.muscle_id WHERE exercise_id = ?1 ORDER BY m.position")?;
                 for row in ms.query_map([ex], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
                     let (m, role) = row?;
-                    if role == "primary" { prev.primary.push(m) } else { prev.secondary.push(m) }
+                    if role == "primary" {
+                        prev.primary.push(m)
+                    } else if role == "secondary" {
+                        prev.secondary.push(m)
+                    }
                 }
                 // The same exercise twice in a workout lines up with its rows from last time, in order.
                 let occurrence = seen.entry(ex).or_default();

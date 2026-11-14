@@ -6,7 +6,8 @@
 //! - Weights are compared in the exercise's own load mode: a session logged per hand for an
 //!   exercise normally logged as a total is doubled first (and vice versa).
 //! - Volume uses the full load (per hand × 2). Bodyweight is not added.
-//! - Sets per muscle: 1 per primary muscle, `secondary_set_weight` (default 0.5) per secondary.
+//! - Sets per muscle: 1 per primary muscle, `secondary_set_weight` (default 0.5) per secondary,
+//!   half of that per minor muscle (one that only grips or holds still).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -220,8 +221,28 @@ pub fn month_start(d: NaiveDate) -> NaiveDate {
     d.with_day(1).unwrap()
 }
 
-/// Muscles of each exercise: exercise id -> [(muscle id, is_primary)].
-pub(crate) type MuscleMap = HashMap<i64, Vec<(String, bool)>>;
+/// How much an exercise works a muscle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Role {
+    Primary,
+    Secondary,
+    /// Grips or holds still rather than moving the load: half a secondary.
+    Minor,
+}
+
+impl Role {
+    /// Fractional sets one set gives the muscle; `secondary` is `secondary_set_weight`.
+    pub(crate) fn weight(self, secondary: f64) -> f64 {
+        match self {
+            Role::Primary => 1.0,
+            Role::Secondary => secondary,
+            Role::Minor => secondary / 2.0,
+        }
+    }
+}
+
+/// Muscles of each exercise: exercise id -> [(muscle id, role)].
+pub(crate) type MuscleMap = HashMap<i64, Vec<(String, Role)>>;
 
 impl Db {
     pub fn formula(&self) -> Result<Formula> {
@@ -284,7 +305,12 @@ impl Db {
         let mut stmt = self.conn().prepare_cached("SELECT exercise_id, muscle_id, role FROM exercise_muscle")?;
         for row in stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? {
             let (e, m, role) = row?;
-            map.entry(e).or_default().push((m, role == "primary"));
+            let role = match role.as_str() {
+                "primary" => Role::Primary,
+                "secondary" => Role::Secondary,
+                _ => Role::Minor,
+            };
+            map.entry(e).or_default().push((m, role));
         }
         Ok(map)
     }
@@ -492,8 +518,8 @@ impl Db {
         let mut acc: BTreeMap<String, (f64, f64, HashMap<i64, f64>)> = BTreeMap::new();
         for s in &sets {
             let Some(ex) = s.exercise_id else { continue };
-            for (m, primary) in muscles.get(&ex).into_iter().flatten() {
-                let w = if *primary { 1.0 } else { secondary };
+            for (m, role) in muscles.get(&ex).into_iter().flatten() {
+                let w = role.weight(secondary);
                 let e = acc.entry(m.clone()).or_default();
                 e.0 += w;
                 e.1 += w * s.volume();
@@ -522,8 +548,8 @@ impl Db {
         )?;
         let mut acc: BTreeMap<String, f64> = BTreeMap::new();
         for ex in stmt.query_map(params![workout_id, warmups], |r| r.get::<_, i64>(0))? {
-            for (m, primary) in muscles.get(&ex?).into_iter().flatten() {
-                *acc.entry(m.clone()).or_default() += if *primary { 1.0 } else { secondary };
+            for (m, role) in muscles.get(&ex?).into_iter().flatten() {
+                *acc.entry(m.clone()).or_default() += role.weight(secondary);
             }
         }
         Ok(acc.into_iter().collect())
@@ -538,8 +564,8 @@ impl Db {
         for s in &sets {
             let Some(ex) = s.exercise_id else { continue };
             let wk = week_start(s.date());
-            for (m, primary) in muscles.get(&ex).into_iter().flatten() {
-                let w = if *primary { 1.0 } else { secondary };
+            for (m, role) in muscles.get(&ex).into_iter().flatten() {
+                let w = role.weight(secondary);
                 let e = acc.entry((wk, m.clone())).or_default();
                 e.0 += w;
                 e.1 += w * s.volume();
@@ -556,7 +582,7 @@ impl Db {
             .collect())
     }
 
-    /// When each muscle was last trained (as primary or secondary) on or before `today`.
+    /// When each muscle was last trained (in any role) on or before `today`.
     pub fn last_trained(&self, today: NaiveDate) -> Result<Vec<LastTrained>> {
         let muscles = self.muscle_map()?;
         let mut last: HashMap<String, NaiveDate> = HashMap::new();

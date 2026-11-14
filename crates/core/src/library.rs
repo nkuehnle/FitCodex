@@ -18,6 +18,9 @@ pub struct LibraryExercise {
     pub kind: String,
     pub primary: Vec<String>,
     pub secondary: Vec<String>,
+    /// Muscles that only grip or hold still: half a secondary.
+    #[serde(default)]
+    pub minor: Vec<String>,
     /// "liftbook" (curated, the id predates the FitLedger name) or "free-exercise-db" (muscles auto-mapped).
     pub source: String,
 }
@@ -85,7 +88,7 @@ mod tests {
         let mut slugs = HashSet::new();
         for e in &lib.exercises {
             assert!(slugs.insert(e.slug.as_str()), "duplicate slug {}", e.slug);
-            for m in e.primary.iter().chain(&e.secondary) {
+            for m in e.primary.iter().chain(&e.secondary).chain(&e.minor) {
                 assert!(muscles.contains(m.as_str()), "{}: unknown muscle {m}", e.name);
             }
         }

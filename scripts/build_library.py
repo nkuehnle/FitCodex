@@ -56,9 +56,9 @@ def load_curated(muscle_ids):
         if not line or line.startswith("#"):
             continue
         cols = [c.strip() for c in line.split("|")]
-        if len(cols) != 7:
-            sys.exit(f"curated.psv:{lineno}: expected 7 columns, got {len(cols)}")
-        name, equipment, pattern, kind, primary, secondary, aliases = cols
+        if len(cols) != 8:
+            sys.exit(f"curated.psv:{lineno}: expected 8 columns, got {len(cols)}")
+        name, equipment, pattern, kind, primary, secondary, minor, aliases = cols
         split = lambda s, sep: [x.strip() for x in s.split(sep) if x.strip()]
         ex = {
             "slug": slugify(name),
@@ -71,6 +71,8 @@ def load_curated(muscle_ids):
             "secondary": split(secondary, ","),
             "source": "liftbook",
         }
+        if minor:
+            ex["minor"] = split(minor, ",")
         problems = []
         if equipment not in EQUIPMENT:
             problems.append(f"equipment {equipment!r}")
@@ -78,12 +80,13 @@ def load_curated(muscle_ids):
             problems.append(f"pattern {pattern!r}")
         if kind not in KINDS:
             problems.append(f"kind {kind!r}")
-        for m in ex["primary"] + ex["secondary"]:
+        roles = ex["primary"] + ex["secondary"] + ex.get("minor", [])
+        for m in roles:
             if m not in muscle_ids:
                 problems.append(f"muscle {m!r}")
-        if set(ex["primary"]) & set(ex["secondary"]):
-            problems.append("muscle listed as both primary and secondary")
-        if not ex["primary"] and pattern != "cardio":
+        if len(set(roles)) != len(roles):
+            problems.append("muscle listed in more than one role")
+        if not ex["primary"] and pattern not in ("cardio", "other"):
             problems.append("no primary muscle")
         if problems:
             sys.exit(f"curated.psv:{lineno}: unknown/invalid " + ", ".join(problems))

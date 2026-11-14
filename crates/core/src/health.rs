@@ -244,8 +244,8 @@ impl Db {
             let Some(sessions) = bests.get(&ex) else { continue };
             let (before, after): (Vec<SessionBest>, Vec<SessionBest>) = sessions.iter().cloned().partition(|x| x.date <= split);
             let Some(c) = matched_change(&before, &after) else { continue };
-            for (m, primary) in muscles {
-                if primary {
+            for (m, role) in muscles {
+                if role == crate::stats::Role::Primary {
                     strength.entry(m).or_default().push((c.change, c.matched));
                 }
             }

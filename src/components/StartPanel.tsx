@@ -50,6 +50,7 @@ export function StartPanel() {
   const next = !top && suggestion?.next && tpl(suggestion.next.template_id) ? suggestion.next : null;
   const main = top ?? next;
   const mainTpl = main && tpl(main.template_id);
+  const optional = suggestion?.optional != null ? tpl(suggestion.optional) : undefined;
   const label = !main
     ? null
     : main.reason === "missed"
@@ -77,6 +78,14 @@ export function StartPanel() {
             Start empty
           </button>
         </div>
+      )}
+      {optional && (
+        <button className="start-row" onClick={() => start({ kind: "template", template_id: optional.id! })}>
+          <span>
+            {optional.name} <span className="muted small">· optional today</span>
+          </span>
+          <span className="muted">Start ›</span>
+        </button>
       )}
       {short[0] && (
         <a className="start-finish small" href="#/stats">

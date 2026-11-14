@@ -154,7 +154,7 @@ export default function SettingsPage() {
             api.setSetting("secondary_set_weight", v);
           },
         )}
-        <span className="muted small"> set (primary muscles always count 1)</span>
+        <span className="muted small"> set (primary muscles always count 1; a minor muscle, one that only grips or braces, counts half of this)</span>
         <label className="check" style={{ marginTop: 12 }}>
           <input
             type="checkbox"

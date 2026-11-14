@@ -332,6 +332,7 @@ fn main() {
         start_date: SPLIT_CHANGE.into(),
         cycle_length: 7,
         days,
+        optional: Vec::new(),
     })
     .unwrap();
 

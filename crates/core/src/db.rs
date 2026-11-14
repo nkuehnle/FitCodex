@@ -324,6 +324,20 @@ CREATE TABLE lift_goal (
     target_date TEXT,
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+"#, r#"
+-- Migration 10: a rest day can carry an optional activity (never planned, missed or counted).
+ALTER TABLE schedule_slot ADD COLUMN optional INTEGER NOT NULL DEFAULT 0;
+"#, r#"
+-- Migration 11: a third muscle role, 'minor' (grip and stabilising work, half a secondary).
+CREATE TABLE exercise_muscle_new (
+    exercise_id INTEGER NOT NULL REFERENCES exercise (id) ON DELETE CASCADE,
+    muscle_id   TEXT NOT NULL REFERENCES muscle (id),
+    role        TEXT NOT NULL CHECK (role IN ('primary', 'secondary', 'minor')),
+    PRIMARY KEY (exercise_id, muscle_id)
+);
+INSERT INTO exercise_muscle_new SELECT exercise_id, muscle_id, role FROM exercise_muscle;
+DROP TABLE exercise_muscle;
+ALTER TABLE exercise_muscle_new RENAME TO exercise_muscle;
 "#];
 
 pub(crate) const MIGRATION_COUNT: usize = MIGRATIONS.len();

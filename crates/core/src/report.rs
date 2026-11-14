@@ -140,7 +140,9 @@ impl Db {
             // Only days since this schedule began can count as planned.
             let start = NaiveDate::parse_from_str(&sched.start_date, "%Y-%m-%d").map_or(p.from, |d| d.max(p.from));
             let planned = start.iter_days().take_while(|d| *d <= p.to).filter(|d| sched.planned(*d).is_some()).count();
-            let done = workouts.iter().filter(|w| w.at.get(..10).is_some_and(|d| d >= start.to_string().as_str())).count();
+            // Optional rest-day activities aren't planned, so they don't count as done either.
+            let optional: Vec<String> = self.list_templates()?.into_iter().filter(|t| sched.optional.contains(&t.id)).map(|t| t.name).collect();
+            let done = workouts.iter().filter(|w| w.at.get(..10).is_some_and(|d| d >= start.to_string().as_str()) && !optional.contains(&w.name)).count();
             if planned > 0 {
                 let _ = writeln!(s, "- Since {start}, on the current schedule: {done} done of {planned} planned");
             }

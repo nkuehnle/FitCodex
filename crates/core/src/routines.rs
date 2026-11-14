@@ -86,6 +86,8 @@ pub struct RoutineCustomExercise {
     pub setup_note: Option<String>,
     pub primary: Vec<String>,
     pub secondary: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub minor: Vec<String>,
 }
 
 /// What importing a routine would do. Nothing has been changed yet.
@@ -160,6 +162,7 @@ impl RoutineCustomExercise {
             setup_note: self.setup_note.clone(),
             primary: self.primary.clone(),
             secondary: self.secondary.clone(),
+            minor: self.minor.clone(),
         }
     }
 }
@@ -332,6 +335,7 @@ impl Db {
                         setup_note: info.setup_note,
                         primary: info.primary,
                         secondary: info.secondary,
+                        minor: info.minor,
                     },
                 );
             }
@@ -438,7 +442,7 @@ impl Db {
             let days = s.days.iter().map(|d| d.as_ref().and_then(|n| ids.get(n).copied())).collect();
             // A whole-weeks cycle counts from a Monday so its days still land on the right weekdays.
             let from = if s.kind == "cycle" && s.cycle_length % 7 == 0 { week_start(start) } else { start };
-            self.save_schedule(&Schedule { id: None, name: r.name.clone(), kind: s.kind.clone(), start_date: from.to_string(), cycle_length: s.cycle_length, days })?;
+            self.save_schedule(&Schedule { id: None, name: r.name.clone(), kind: s.kind.clone(), start_date: from.to_string(), cycle_length: s.cycle_length, days, optional: Vec::new() })?;
         }
         Ok(ids.into_values().collect())
     }
@@ -483,6 +487,7 @@ mod tests {
             setup_note: Some("pin 4".into()),
             primary: vec![],
             secondary: vec![],
+            minor: vec![],
         }
     }
 
@@ -506,7 +511,7 @@ mod tests {
         let mut days = vec![None; 7];
         days[0] = Some(id);
         days[3] = Some(id);
-        db.save_schedule(&Schedule { id: None, name: "My split".into(), kind: "weekly".into(), start_date: "2026-11-02".into(), cycle_length: 7, days }).unwrap();
+        db.save_schedule(&Schedule { id: None, name: "My split".into(), kind: "weekly".into(), start_date: "2026-11-02".into(), cycle_length: 7, days, optional: Vec::new() }).unwrap();
         db
     }
 

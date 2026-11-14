@@ -162,6 +162,8 @@ impl Db {
                 1.0
             } else if info.secondary.iter().any(|x| x == m) {
                 secondary
+            } else if info.minor.iter().any(|x| x == m) {
+                secondary / 2.0
             } else {
                 0.0
             }
@@ -178,7 +180,8 @@ impl Db {
             None => String::new(),
         };
         // Would `n` more (or fewer) weekly sets of an exercise keep every other muscle it trains
-        // inside its range, or at least no further outside it?
+        // inside its range, or at least no further outside it? Minor muscles get too little from
+        // it to hold a change back.
         let others_ok = |info: &ExerciseInfo, muscle: &str, n: f64| {
             info.primary.iter().chain(&info.secondary).filter(|m| m.as_str() != muscle).all(|m| {
                 let Some(&(lo, hi)) = targets.get(m) else { return true };
@@ -681,7 +684,7 @@ mod tests {
         for (i, id) in ids.iter().enumerate() {
             slots[i * 3] = Some(*id);
         }
-        db.save_schedule(&Schedule { id: None, name: "Test".into(), kind: "weekly".into(), start_date: "2026-06-01".into(), cycle_length: 7, days: slots }).unwrap();
+        db.save_schedule(&Schedule { id: None, name: "Test".into(), kind: "weekly".into(), start_date: "2026-06-01".into(), cycle_length: 7, days: slots, optional: Vec::new() }).unwrap();
         ids
     }
 

@@ -40,8 +40,8 @@ the desktop app; use a normal terminal.
   or copy it to the phone and open it. Debug and release builds have different signatures, so
   switching between them means uninstalling first (back up your data from the app first).
 
-Release signing uses `~/Android/fitledger-release.jks`; its passwords are in
-`~/Android/fitledger-keystore.properties` (copied to `src-tauri/gen/android/keystore.properties`,
+Release signing uses `~/Android/liftbook-release.jks`; its passwords are in
+`~/Android/liftbook-keystore.properties` (copied to `src-tauri/gen/android/keystore.properties`,
 which git ignores). Keep both safe: app updates must be signed with the same key.
 
 ## Releasing
@@ -75,6 +75,14 @@ when the app is installed on a new phone. No sign-in or server is involved. Rest
 same signing key, which is one more reason to keep the keystore safe. To test on an emulator:
 `adb shell bmgr transport com.android.localtransport/.LocalTransport`,
 `adb shell bmgr backupnow io.github.njk639.fitledger`, then uninstall and reinstall.
+
+**Google Drive backup (optional, Android).** Off by default; the Data page turns it on. The
+automatic backup is then also uploaded to a "FitLedger" folder in the user's Drive, on the same
+schedule and with the same number kept (`DrivePlugin.kt`, registered as the `drive` plugin). It
+asks only for the `drive.file` scope, so it sees just the files it created. Google matches the app
+by package name and signing SHA-1 against an Android OAuth client in a Google Cloud project, so
+only APKs signed with the release key can sign in; there is no client ID or secret in the code.
+While that project's consent screen is in "Testing", only listed test users can turn it on.
 
 Exports and backups on Android save to `Download/FitLedger` (or open the share sheet). A weekly
 automatic backup (`fitledger-auto-<date>.fitledger`, newest 4 kept) goes to the same folder, or to

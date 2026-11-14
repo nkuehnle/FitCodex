@@ -253,6 +253,61 @@ export default function DataPage() {
   );
 }
 
+/** Optional: the automatic backup also goes to a "FitLedger" folder in Google Drive. Off until turned on. */
+function DriveBackup() {
+  const [d, setD] = useState<{ on: boolean; last: string | null; error: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () =>
+    Promise.all(["drive_backup", "last_drive_backup_at", "last_drive_backup_error"].map(api.getSetting)).then(([on, last, error]) =>
+      setD({ on: on === "on", last, error: on === "on" ? error : null }),
+    );
+  useEffect(() => {
+    load();
+  }, []);
+  if (!d) return null;
+  // Turning it on asks Google for access, then uploads straight away so it's clear that it works.
+  const upload = async (connect: boolean) => {
+    setBusy(true);
+    try {
+      if (connect) await api.driveConnect();
+      await api.setSetting("drive_backup", "on");
+      await api.driveBackup(true);
+    } catch (e) {
+      if (connect) await api.setSetting("drive_backup", "off");
+      setD({ on: !connect, last: d.last, error: String(e) });
+      setBusy(false);
+      return;
+    }
+    await load();
+    setBusy(false);
+  };
+  return (
+    <>
+      <label className="check small">
+        <input
+          type="checkbox"
+          checked={d.on}
+          disabled={busy}
+          onChange={(e) => (e.target.checked ? upload(true) : api.setSetting("drive_backup", "off").then(load))}
+        />
+        Also back up to Google Drive (a FitLedger folder in your Drive)
+      </label>
+      {d.error && (d.on || busy) && <p className="warn small">⚠ The last Google Drive backup failed: {d.error}</p>}
+      {d.error && !d.on && !busy && <p className="warn small">⚠ Couldn't turn on Google Drive backup: {d.error}</p>}
+      {d.on && (
+        <div className="row">
+          <button className="button small" disabled={busy} onClick={() => upload(false)}>
+            {busy ? "Uploading…" : "Back up to Drive now"}
+          </button>
+          <span className="muted small">
+            {d.last ? `Last Drive backup: ${formatDate(d.last)} ${d.last.slice(11, 16)}.` : "No Drive backup yet."} Same schedule as above.
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ExportBackup() {
   const [last, setLast] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -441,6 +496,7 @@ function ExportBackup() {
             )}
           </>
         )}
+        {IS_ANDROID && <DriveBackup />}
         {pending && (
           <div className="restore-confirm">
             <table className="sets small">

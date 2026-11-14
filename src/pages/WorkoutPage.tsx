@@ -60,6 +60,7 @@ export default function WorkoutPage({ id, mode }: { id: number; mode: "live" | "
     const r = await api.finishWorkout(w!.id);
     timer.clear();
     api.autoBackup(false).catch(() => {}); // a failure is recorded and shown on the Workouts tab
+    api.driveBackup(false).catch(() => {});
     if (r.differs_from_template && (await ask(`Update the “${w!.name}” template with today's exercises, order, sets and rest times?`))) {
       await api.updateTemplateFromWorkout(w!.id);
     }

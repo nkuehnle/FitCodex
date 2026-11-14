@@ -31,7 +31,9 @@ export function TodayCard() {
   useEffect(() => {
     load();
     loadWeighInPlan().then(setPlan);
-    Promise.all([api.getSetting("auto_backup"), api.getSetting("last_auto_backup_error")]).then(([on, e]) => setBackupFailed(on !== "off" && !!e));
+    Promise.all(["auto_backup", "last_auto_backup_error", "drive_backup", "last_drive_backup_error"].map(api.getSetting)).then(
+      ([on, e, drive, driveError]) => setBackupFailed((on !== "off" && !!e) || (drive === "on" && !!driveError)),
+    );
   }, []);
   if (!rows) return null;
 

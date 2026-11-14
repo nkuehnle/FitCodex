@@ -37,6 +37,7 @@ const BLANK: ExerciseEdit = {
   setup_note: null,
   primary: [],
   secondary: [],
+  minor: [],
 };
 
 /** Create a custom exercise (`id` omitted) or edit any exercise, including its muscles. */
@@ -74,18 +75,22 @@ export function ExerciseEditor({
             setup_note: x.setup_note,
             primary: x.primary,
             secondary: x.secondary,
+            minor: x.minor,
           });
       });
   }, [id]);
 
-  const role = (m: string) => (e.primary.includes(m) ? "primary" : e.secondary.includes(m) ? "secondary" : "none");
+  const role = (m: string) =>
+    e.primary.includes(m) ? "primary" : e.secondary.includes(m) ? "secondary" : e.minor.includes(m) ? "minor" : "none";
   const cycle = (m: string) => {
     const r = role(m);
     const primary = e.primary.filter((x) => x !== m);
     const secondary = e.secondary.filter((x) => x !== m);
+    const minor = e.minor.filter((x) => x !== m);
     if (r === "none") primary.push(m);
     else if (r === "primary") secondary.push(m);
-    setE({ ...e, primary, secondary });
+    else if (r === "secondary") minor.push(m);
+    setE({ ...e, primary, secondary, minor });
   };
 
   async function save() {
@@ -170,7 +175,7 @@ export function ExerciseEditor({
           />
         </label>
         <div>
-          <div className="section-label">Muscles · tap to cycle: primary (1 set) → secondary (½ set) → none</div>
+          <div className="section-label">Muscles · tap to cycle: primary (1 set) → secondary (½ set) → minor (¼ set) → none</div>
           {groups.map((g) => (
             <div key={g.id} className="muscle-group-row">
               <span className="muted small">{g.name}</span>
@@ -180,6 +185,7 @@ export function ExerciseEditor({
                   .map((m) => (
                     <button key={m.id} className={`muscle-chip ${role(m.id)}`} onClick={() => cycle(m.id)}>
                       {m.name}
+                      {role(m.id) === "secondary" ? " ½" : role(m.id) === "minor" ? " ¼" : ""}
                     </button>
                   ))}
               </div>

@@ -21,6 +21,9 @@ pub struct Schedule {
     pub cycle_length: i64,
     /// Template per day index; `None` = rest.
     pub days: Vec<Option<i64>>,
+    /// Optional activity (a template) per rest day. Never planned, missed or counted.
+    #[serde(default)]
+    pub optional: Vec<Option<i64>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -40,6 +43,8 @@ pub struct Suggestion {
     pub items: Vec<Suggested>,
     /// Next planned workout after today (shown on rest days).
     pub next: Option<Suggested>,
+    /// Today's optional rest-day activity, until it's done.
+    pub optional: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +135,7 @@ impl Goal {
     }
 }
 
-/// Default weekly set targets (fractional sets: primary 1, secondary ½).
+/// Default weekly set targets (fractional sets: primary 1, secondary ½, minor ¼).
 ///
 /// Based on hypertrophy dose-response research rather than anyone's training:
 /// - Schoenfeld, Ogborn & Krieger 2017 (J Sports Sci): ≥10 weekly sets per muscle grew more than
@@ -160,15 +165,27 @@ fn parse_date(s: &str) -> Result<NaiveDate> {
 impl Schedule {
     /// Template planned on `d` (None = rest or before the start).
     pub fn planned(&self, d: NaiveDate) -> Option<i64> {
+        self.days.get(self.day_index(d)?).copied().flatten()
+    }
+
+    /// Optional activity on `d`, if `d` is a rest day that has one.
+    pub fn optional_on(&self, d: NaiveDate) -> Option<i64> {
+        let i = self.day_index(d)?;
+        if self.days.get(i).copied().flatten().is_some() {
+            return None;
+        }
+        self.optional.get(i).copied().flatten()
+    }
+
+    fn day_index(&self, d: NaiveDate) -> Option<usize> {
         let start = parse_date(&self.start_date).ok()?;
         if d < start {
             return None;
         }
-        let idx = match self.kind.as_str() {
+        Some(match self.kind.as_str() {
             "weekly" => d.weekday().num_days_from_monday() as usize,
             _ => ((d - start).num_days() % self.cycle_length.max(1)) as usize,
-        };
-        self.days.get(idx).copied().flatten()
+        })
     }
 
     /// First day of the window `d` falls in: its week (weekly) or cycle iteration.
@@ -230,7 +247,8 @@ pub fn suggest(schedule: &Schedule, today: NaiveDate, done: &[(NaiveDate, i64)])
             break;
         }
     }
-    Suggestion { is_rest_day: today_planned.is_none(), done_today, items, next }
+    let optional = schedule.optional_on(today).filter(|t| !done.contains(&(today, *t)));
+    Suggestion { is_rest_day: today_planned.is_none(), done_today, items, next, optional }
 }
 
 impl Db {
@@ -246,14 +264,15 @@ impl Db {
         let Some((id, name, kind, start_date, cycle_length)) = head else { return Ok(None) };
         let len = if kind == "weekly" { 7 } else { cycle_length };
         let mut days = vec![None; len as usize];
-        let mut stmt = self.conn().prepare("SELECT day_index, template_id FROM schedule_slot WHERE schedule_id = ?1")?;
-        for row in stmt.query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?)))? {
-            let (i, t) = row?;
-            if let Some(slot) = days.get_mut(i as usize) {
+        let mut optional = vec![None; len as usize];
+        let mut stmt = self.conn().prepare("SELECT day_index, template_id, optional FROM schedule_slot WHERE schedule_id = ?1")?;
+        for row in stmt.query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, bool>(2)?)))? {
+            let (i, t, opt) = row?;
+            if let Some(slot) = if opt { &mut optional } else { &mut days }.get_mut(i as usize) {
                 *slot = t;
             }
         }
-        Ok(Some(Schedule { id: Some(id), name, kind, start_date, cycle_length: len, days }))
+        Ok(Some(Schedule { id: Some(id), name, kind, start_date, cycle_length: len, days, optional }))
     }
 
     /// Saves a schedule and makes it the active one.
@@ -282,9 +301,14 @@ impl Db {
                 tx.last_insert_rowid()
             }
         };
-        for (i, t) in s.days.iter().enumerate().take(len as usize) {
-            if let Some(t) = t {
-                tx.execute("INSERT INTO schedule_slot (schedule_id, day_index, template_id) VALUES (?1, ?2, ?3)", params![id, i as i64, t])?;
+        for i in 0..len as usize {
+            // A workout on the day wins over an optional activity.
+            let slot = s.days.get(i).copied().flatten().map(|t| (t, false)).or(s.optional.get(i).copied().flatten().map(|t| (t, true)));
+            if let Some((t, optional)) = slot {
+                tx.execute(
+                    "INSERT INTO schedule_slot (schedule_id, day_index, template_id, optional) VALUES (?1, ?2, ?3, ?4)",
+                    params![id, i as i64, t, optional],
+                )?;
             }
         }
         tx.commit()?;
@@ -344,8 +368,8 @@ impl Db {
             let Some(t) = templates.get(t) else { continue };
             for e in &t.exercises {
                 let sets = e.target_sets.unwrap_or(3) as f64;
-                for (m, primary) in muscles.get(&e.exercise_id).into_iter().flatten() {
-                    *acc.entry(m.clone()).or_default() += sets * scale * if *primary { 1.0 } else { secondary };
+                for (m, role) in muscles.get(&e.exercise_id).into_iter().flatten() {
+                    *acc.entry(m.clone()).or_default() += sets * scale * role.weight(secondary);
                 }
             }
         }
@@ -585,6 +609,7 @@ impl Db {
             start_date: schedule_start.to_string(),
             cycle_length: 7,
             days,
+            optional: Vec::new(),
         })?;
         Ok(uncertain)
     }
@@ -633,6 +658,7 @@ mod tests {
             start_date: "2026-06-01".into(),
             cycle_length: 7,
             days: vec![Some(LIMB_A), Some(TORSO_A), None, Some(LIMB_B), Some(TORSO_B), None, None],
+            optional: Vec::new(),
         }
     }
 
@@ -696,6 +722,33 @@ mod tests {
     }
 
     #[test]
+    fn optional_rest_day_activity() {
+        const MOBILITY: i64 = 5;
+        // Wednesday and Saturday are rest days with optional mobility work.
+        let sched = Schedule { optional: vec![None, None, Some(MOBILITY), None, None, Some(MOBILITY), None], ..weekly() };
+        let done = [(d("2026-11-02"), LIMB_A), (d("2026-11-03"), TORSO_A)];
+        let s = suggest(&sched, d("2026-11-04"), &done);
+        assert!(s.is_rest_day && s.items.is_empty());
+        assert_eq!(s.optional, Some(MOBILITY));
+        assert_eq!(s.next.as_ref().unwrap().template_id, LIMB_B);
+        // Skipping it is never a miss, and doing it clears it.
+        let s = suggest(&sched, d("2026-11-05"), &done);
+        assert_eq!((ids(&s), s.optional), (vec![(LIMB_B, "today")], None));
+        let s = suggest(&sched, d("2026-11-04"), &[(d("2026-11-04"), MOBILITY)]);
+        assert_eq!(s.optional, None);
+
+        let mut db = Db::open_in_memory().unwrap();
+        let t = |db: &mut Db, name: &str| db.save_template(&Template { id: None, name: name.into(), notes: None, color: None, exercises: Vec::new(), last_done: None }).unwrap();
+        let (lift, mobility) = (t(&mut db, "Lift"), t(&mut db, "Mobility"));
+        let saved = Schedule { days: vec![Some(lift), None, None, None, None, None, None], optional: vec![Some(mobility), Some(mobility), None, None, None, None, None], ..weekly() };
+        db.save_schedule(&saved).unwrap();
+        let back = db.active_schedule().unwrap().unwrap();
+        assert_eq!(back.days, saved.days);
+        // Monday already has a workout, so its optional activity is dropped.
+        assert_eq!(back.optional, vec![None, Some(mobility), None, None, None, None, None]);
+    }
+
+    #[test]
     fn custom_cycle() {
         // 6-day cycle starting Sunday 2026-11-01: Torso / Limb / Rest / Torso / Limb / Rest.
         let s = Schedule {
@@ -705,6 +758,7 @@ mod tests {
             start_date: "2026-11-01".into(),
             cycle_length: 6,
             days: vec![Some(TORSO_A), Some(LIMB_A), None, Some(TORSO_B), Some(LIMB_B), None],
+            optional: Vec::new(),
         };
         assert_eq!(s.planned(d("2026-11-01")), Some(TORSO_A));
         assert_eq!(s.planned(d("2026-11-03")), None);

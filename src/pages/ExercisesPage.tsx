@@ -108,7 +108,7 @@ function Library({ selectedId }: { selectedId: number | null }) {
     return all
       .filter((e) => !usedOnly || e.sessions > 0)
       .filter((e) => !equipment || e.equipment === equipment)
-      .filter((e) => !muscle || e.primary.includes(muscle) || e.secondary.includes(muscle))
+      .filter((e) => !muscle || e.primary.includes(muscle) || e.secondary.includes(muscle) || e.minor.includes(muscle))
       .filter((e) => !nq || norm(e.name).includes(nq) || e.aliases.some((a) => norm(a).includes(nq)))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [all, q, usedOnly, equipment, muscle]);
@@ -288,6 +288,11 @@ function ExerciseDetail({ id }: { id: number }) {
             {info.secondary.map((m) => (
               <span key={m} className="chip">
                 {name(m)} ½
+              </span>
+            ))}
+            {info.minor.map((m) => (
+              <span key={m} className="chip">
+                {name(m)} ¼
               </span>
             ))}
             {info.source === "free-exercise-db" && !info.user_modified && <span className="chip warn">muscles auto-mapped</span>}

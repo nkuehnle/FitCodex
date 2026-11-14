@@ -464,7 +464,7 @@ function ScheduleTab() {
     api
       .activeSchedule()
       .then((x) =>
-        setS(x ?? { id: null, name: "My schedule", kind: "weekly", start_date: today(), cycle_length: 7, days: Array(7).fill(null) }),
+        setS(x ?? { id: null, name: "My schedule", kind: "weekly", start_date: today(), cycle_length: 7, days: Array(7).fill(null), optional: [] }),
       );
     api.listTemplates().then(setTemplates);
   };
@@ -475,9 +475,16 @@ function ScheduleTab() {
   if (!s) return <p className="muted">Loading…</p>;
   const len = s.kind === "weekly" ? 7 : s.cycle_length;
   const days = Array.from({ length: len }, (_, i) => s.days[i] ?? null);
+  const optional = Array.from({ length: len }, (_, i) => s.optional[i] ?? null);
+  // One slot per day: a workout ("12"), a rest day with an optional activity ("o12"), or rest ("").
+  const setDay = (i: number, v: string) => {
+    const id = Number(v.replace("o", "")) || null;
+    const at = (list: (number | null)[], x: number | null) => list.map((y, j) => (j === i ? x : y));
+    setS({ ...s, days: at(days, v.startsWith("o") ? null : id), optional: at(optional, v.startsWith("o") ? id : null) });
+  };
 
   async function save() {
-    await api.saveSchedule({ ...s!, cycle_length: len, days });
+    await api.saveSchedule({ ...s!, cycle_length: len, days, optional });
     setMsg("Schedule saved.");
   }
 
@@ -519,8 +526,8 @@ function ScheduleTab() {
               <span className="muted small">{s.kind === "weekly" ? DAYS[i] : `Day ${i + 1}`}</span>
               <select
                 className="select"
-                value={d ?? ""}
-                onChange={(e) => setS({ ...s, days: days.map((x, j) => (j === i ? (e.target.value ? Number(e.target.value) : null) : x)) })}
+                value={d ?? (optional[i] ? `o${optional[i]}` : "")}
+                onChange={(e) => setDay(i, e.target.value)}
               >
                 <option value="">Rest</option>
                 {templates.map((t) => (
@@ -528,6 +535,13 @@ function ScheduleTab() {
                     {t.name}
                   </option>
                 ))}
+                <optgroup label="Rest, with an optional activity">
+                  {templates.map((t) => (
+                    <option key={t.id} value={`o${t.id}`}>
+                      Rest + {t.name}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </label>
           ))}
@@ -713,7 +727,7 @@ function TargetsTab() {
   return (
     <section className="card">
       <p className="muted small">
-        Weekly working sets per muscle; a secondary muscle counts ½ set. The default of 10–20 for every muscle comes from research on
+        Weekly working sets per muscle; a secondary muscle counts ½ set and a minor one ¼. The default of 10–20 for every muscle comes from research on
         training volume and muscle growth, not from your own workouts: about 10+ weekly sets grew more than fewer (Schoenfeld et al., 2017),
         12–20 is a common recommendation for trained lifters (Baz-Valle et al., 2022), and gains keep rising with more sets but with
         diminishing returns (Pelland et al., 2025). The studies don't give different numbers per muscle, so adjust any you like.

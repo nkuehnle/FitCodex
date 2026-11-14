@@ -1147,6 +1147,79 @@ fn auto_backup(app: tauri::AppHandle, state: State<AppState>, force: bool) -> Cm
     })
 }
 
+// Optional: the same backup also goes to a "FitLedger" folder in the user's Google Drive
+// (Android, gen/android/.../DrivePlugin.kt). Off unless the `drive_backup` setting is "on".
+
+#[cfg(target_os = "android")]
+struct Drive(tauri::plugin::PluginHandle<tauri::Wry>);
+
+fn drive_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("drive")
+        .setup(|_app, _api| {
+            #[cfg(target_os = "android")]
+            {
+                let handle = _api.register_android_plugin("io.github.njk639.fitledger", "DrivePlugin")?;
+                _app.manage(Drive(handle));
+            }
+            Ok(())
+        })
+        .build()
+}
+
+/// Calls the Drive plugin off the main thread (it waits on the network or the consent screen).
+#[allow(unused_variables)]
+async fn drive_call(app: &tauri::AppHandle, method: &'static str, args: serde_json::Value) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    {
+        let app = app.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let d = app.try_state::<Drive>().ok_or("Google Drive isn't set up")?;
+            d.0.run_mobile_plugin::<serde_json::Value>(method, args).map(|_| ()).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "android"))]
+    Err("Google Drive backup is only on Android".into())
+}
+
+/// Asks Google for access to the app's own Drive files (shows the consent screen the first time).
+#[tauri::command]
+async fn drive_connect(app: tauri::AppHandle) -> CmdResult<()> {
+    drive_call(&app, "connect", serde_json::json!({})).await
+}
+
+/// Uploads a backup to Google Drive if it's turned on and one is due (or `force`); returns
+/// whether it ran. Same schedule and number kept as the automatic backup. A failure is remembered.
+#[tauri::command]
+async fn drive_backup(app: tauri::AppHandle, state: State<'_, AppState>, force: bool) -> CmdResult<bool> {
+    let now = Local::now().naive_local();
+    let name = format!("fitledger-auto-{}.fitledger", today_stamp());
+    let path = share_dir(&app)?.join(format!("drive-{name}"));
+    let keep = with(&state, |db| {
+        let (every_days, keep) = auto_backup_policy(db.setting("auto_backup_days")?.as_deref());
+        let on = db.setting("drive_backup")?.as_deref() == Some("on");
+        let due = auto_backup_due(db.setting("last_drive_backup_at")?.as_deref(), now, every_days);
+        if !on || !(force || due && db.counts()?.workouts > 0) {
+            return Ok(None);
+        }
+        db.backup_to(&path)?;
+        Ok(Some(keep))
+    })?;
+    let Some(keep) = keep else { return Ok(false) };
+    let args = serde_json::json!({ "path": path.to_string_lossy(), "name": name, "prefix": "fitledger-auto-", "keep": keep });
+    let outcome = drive_call(&app, "upload", args).await;
+    let _ = std::fs::remove_file(&path);
+    with(&state, |db| match &outcome {
+        Ok(()) => {
+            db.set_setting("last_drive_backup_at", &now.format("%Y-%m-%d %H:%M:%S").to_string())?;
+            db.set_setting("last_drive_backup_error", "")
+        }
+        Err(e) => db.set_setting("last_drive_backup_error", e),
+    })?;
+    outcome.map(|()| true)
+}
+
 #[tauri::command]
 fn backup_to(state: State<AppState>, path: String) -> CmdResult<BackupInfo> {
     with(&state, |db| {
@@ -1406,6 +1479,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(rest_timer_plugin())
         .plugin(health_connect_plugin())
+        .plugin(drive_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -1437,7 +1511,7 @@ pub fn run() {
             preview_inbody_csv, import_inbody_csv, diet_days, save_diet_day, energy_balance,
             body_parts, measurements, add_measurement, delete_measurement,
             export_file, backup_to, inspect_backup, restore_from, db_info, save_base64, copy_png,
-            rest_android_status, rest_android_rest, rest_android_clear, weigh_in_reminder, auto_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
+            rest_android_status, rest_android_rest, rest_android_clear, weigh_in_reminder, auto_backup, drive_connect, drive_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
             health_connect_sync, import_fit, day_health, fatigue,
             share_export, share_backup, share_png, save_png_to_photos, read_inbody_image, stage_backup,
             counts, get_setting, set_setting,

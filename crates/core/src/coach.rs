@@ -563,7 +563,7 @@ mod tests {
         db.conn().execute("INSERT INTO template_exercise (template_id, position, exercise_id, target_sets) VALUES (?1, 0, ?2, 12)", params![t, ex]).unwrap();
         let cycle_length = days.len() as i64;
         let days = days.into_iter().map(|on| on.then_some(t)).collect();
-        db.save_schedule(&Schedule { id: None, name: "S".into(), kind: kind.into(), start_date: start.into(), cycle_length, days }).unwrap();
+        db.save_schedule(&Schedule { id: None, name: "S".into(), kind: kind.into(), start_date: start.into(), cycle_length, days, optional: Vec::new() }).unwrap();
         let muscle: String =
             db.conn().query_row("SELECT muscle_id FROM exercise_muscle WHERE exercise_id = ?1 AND role = 'primary' LIMIT 1", [ex], |r| r.get(0)).unwrap();
         db.set_muscle_target(&muscle, 20.0, 30.0).unwrap();

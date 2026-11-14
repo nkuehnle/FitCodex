@@ -116,6 +116,9 @@ impl Db {
                 for m in &e.secondary {
                     ins_muscle.execute(params![id, m, "secondary"])?;
                 }
+                for m in &e.minor {
+                    ins_muscle.execute(params![id, m, "minor"])?;
+                }
             }
         }
         tx.execute(

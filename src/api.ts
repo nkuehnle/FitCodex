@@ -287,6 +287,8 @@ export interface ExerciseInfo {
   setup_note: string | null;
   primary: string[];
   secondary: string[];
+  /** Muscles that only grip, brace or hold still: half a secondary. */
+  minor: string[];
   source: string;
   is_custom: boolean;
   user_modified: boolean;
@@ -296,7 +298,7 @@ export interface ExerciseInfo {
 
 export type ExerciseEdit = Pick<
   ExerciseInfo,
-  "name" | "equipment" | "pattern" | "kind" | "load_mode" | "default_rest_s" | "setup_note" | "primary" | "secondary"
+  "name" | "equipment" | "pattern" | "kind" | "load_mode" | "default_rest_s" | "setup_note" | "primary" | "secondary" | "minor"
 >;
 
 export interface SetBrief {
@@ -513,6 +515,8 @@ export interface Schedule {
   start_date: string;
   cycle_length: number;
   days: (number | null)[];
+  /** Optional activity (a template) per rest day. */
+  optional: (number | null)[];
 }
 
 export interface Suggested {
@@ -526,6 +530,8 @@ export interface Suggestion {
   done_today: boolean;
   items: Suggested[];
   next: Suggested | null;
+  /** Template of today's optional rest-day activity, until it's done. */
+  optional: number | null;
 }
 
 export interface MuscleTarget {
@@ -794,6 +800,9 @@ export const api = {
   fatigue: () => invoke<FatigueReport>("fatigue", { today: localToday() }),
   /** Automatic backup to Download/FitLedger (Android) if due, or now with `force`; returns where it went. */
   autoBackup: (force: boolean) => invoke<string | null>("auto_backup", { force }),
+  /** Google Drive (Android, optional): ask for access; upload if on and due. */
+  driveConnect: () => invoke<void>("drive_connect"),
+  driveBackup: (force: boolean) => invoke<boolean>("drive_backup", { force }),
 
   perHandSuspects: () => invoke<PerHandSuspect[]>("per_hand_suspects"),
   setSessionLoadMode: (workoutExerciseId: number, mode: "total" | "per_hand" | null) =>

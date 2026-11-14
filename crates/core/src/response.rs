@@ -55,7 +55,7 @@ impl Db {
         }
 
         let primary: Vec<i64> =
-            self.muscle_map()?.into_iter().filter(|(_, ms)| ms.iter().any(|(m, p)| *p && m == muscle)).map(|(ex, _)| ex).collect();
+            self.muscle_map()?.into_iter().filter(|(_, ms)| ms.iter().any(|(m, r)| *r == crate::stats::Role::Primary && m == muscle)).map(|(ex, _)| ex).collect();
         let bests = self.session_bests(None, Some(&to))?;
         let mut changes: HashMap<i64, Vec<f64>> = HashMap::new();
         for ex in primary {

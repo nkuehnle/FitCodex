@@ -77,8 +77,8 @@ are a setting.
 - Optional muscle additions discussed: hip flexors, gastrocnemius/soleus, tibialis, triceps
   long head.
 - Android account backup (Android Auto Backup of a DB snapshot): done, tested with uninstall/reinstall.
-- Optional Google Drive backups (visible folder, after each workout, phone ↔ desktop): needs a
-  one-time OAuth client setup by the publisher; not started.
+- Optional Google Drive backups (visible folder, on the automatic backup's schedule): built for
+  Android, not yet tried on a phone. Desktop and restoring straight from Drive: not started.
 - Play Store release ($25 one-time developer fee; privacy policy page needed).
 
 ## Notes
