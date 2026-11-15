@@ -20,7 +20,7 @@ import {
 import { usePrefs } from "../App";
 import { RangePicker, inRange, today, useSavedRange } from "../charts/RangePicker";
 import { TimeSeriesChart, type Band, type Point, type Series } from "../charts/TimeSeriesChart";
-import { useChartTheme } from "../charts/theme";
+import { useChartTheme, type ChartTheme } from "../charts/theme";
 import { BodyFatTab } from "../components/BodyFatTab";
 import { Modal } from "../components/Modal";
 import { ProfileHint, Standing, useNormProfile } from "../components/Standing";
@@ -85,6 +85,8 @@ function GoalPanel() {
   const [history, setHistory] = useState<GoalEntry[]>([]);
   const [rate, setRate] = useState("");
   const [add, setAdd] = useState<{ goal: Goal; start: string; rate: string }>({ goal: "cut", start: today(), rate: "" });
+  const [edit, setEdit] = useState<{ id: number; goal: Goal; start: string; end: string; rate: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const load = () => {
     api.currentGoal().then((g) => {
       setInfo(g);
@@ -134,17 +136,97 @@ function GoalPanel() {
         <summary className="small">Goal history</summary>
         <table className="table small">
           <tbody>
-            {[...history].reverse().map((h) => (
-              <tr key={h.phase_id}>
-                <td>{GOAL_TEXT[h.goal]}</td>
-                <td>
-                  {formatDate(h.start_date)} – {h.end_date ? formatDate(h.end_date) : "now"}
-                </td>
-                <td className="muted">
-                  {h.goal === "maintain" ? "±0" : h.weekly_rate_kg != null ? `${signed(toUnit(h.weekly_rate_kg, unit), 2)} ${unit}/wk` : "default"}
-                </td>
-              </tr>
-            ))}
+            {[...history].reverse().map((h) =>
+              edit?.id === h.phase_id ? (
+                <tr key={h.phase_id}>
+                  <td>{GOAL_TEXT[h.goal]}</td>
+                  <td colSpan={2}>
+                    <div className="row small">
+                      <input
+                        className="input"
+                        type="date"
+                        value={edit.start}
+                        onChange={(e) => setEdit({ ...edit, start: e.target.value })}
+                      />
+                      to
+                      <input
+                        className="input"
+                        type="date"
+                        value={edit.end}
+                        aria-label="End (blank = ongoing)"
+                        onChange={(e) => setEdit({ ...edit, end: e.target.value })}
+                      />
+                      {edit.goal !== "maintain" && (
+                        <input
+                          className="input small-input"
+                          inputMode="decimal"
+                          placeholder={`${unit}/wk`}
+                          aria-label={`Weekly target, ${unit} (blank = default)`}
+                          value={edit.rate}
+                          onChange={(e) => setEdit({ ...edit, rate: e.target.value })}
+                        />
+                      )}
+                      <button
+                        className="button"
+                        disabled={!edit.start}
+                        onClick={() =>
+                          api
+                            .editGoal(
+                              edit.id,
+                              edit.start,
+                              edit.end || null,
+                              edit.goal === "maintain" ? null : parseRate(edit.rate, edit.goal, unit),
+                            )
+                            .then(() => (setEdit(null), setError(null), changed()))
+                            .catch((e) => setError(String(e)))
+                        }
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="link-btn danger"
+                        onClick={async () => {
+                          if (!(await ask(`Delete the ${GOAL_TEXT[edit.goal].toLowerCase()} goal from ${formatDate(edit.start)}?`))) return;
+                          await api.deletePhase(edit.id);
+                          setEdit(null);
+                          setError(null);
+                          changed();
+                        }}
+                      >
+                        Delete
+                      </button>
+                      <button className="link-btn" onClick={() => (setEdit(null), setError(null))}>
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={h.phase_id}>
+                  <td>{GOAL_TEXT[h.goal]}</td>
+                  <td>
+                    <button
+                      className="link-btn"
+                      onClick={() => (
+                        setEdit({
+                          id: h.phase_id,
+                          goal: h.goal,
+                          start: h.start_date,
+                          end: h.end_date ?? "",
+                          rate: rateText(h.weekly_rate_kg, unit),
+                        }),
+                        setError(null)
+                      )}
+                    >
+                      {formatDate(h.start_date)} – {h.end_date ? formatDate(h.end_date) : "now"}
+                    </button>
+                  </td>
+                  <td className="muted">
+                    {h.goal === "maintain" ? "±0" : h.weekly_rate_kg != null ? `${signed(toUnit(h.weekly_rate_kg, unit), 2)} ${unit}/wk` : "default"}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
         <div className="row small">
@@ -174,7 +256,11 @@ function GoalPanel() {
             Add
           </button>
         </div>
-        <p className="small muted">Adding a goal with an earlier start date ends the goal before it on that date.</p>
+        {error && <p className="error small">{error}</p>}
+        <p className="small muted">
+          Adding a goal with an earlier start date ends the goal before it on that date. Tap a goal's dates to change them, its weekly
+          target, or delete it (leave the end blank while it's ongoing); goals they now overlap are shortened to fit.
+        </p>
       </details>
     </div>
   );
@@ -318,7 +404,7 @@ function BodyPartsTab({ part }: { part?: string }) {
           </button>
         </div>
         {mine.length > 1 && (
-          <TimeSeriesChart series={partSeries} unit={unitLabel} height={200} />
+          <TimeSeriesChart series={partSeries} unit={unitLabel} height={200} title={sel.label} />
         )}
         {pumpedRows.length > 0 && (
           <p className="muted small">
@@ -844,6 +930,7 @@ function InBodyTab() {
               ))}
             </select>
             <TimeSeriesChart
+              title={`InBody: ${fieldOf(metric)?.label ?? metric}`}
               series={[{ id: metric, label: fieldOf(metric)?.label ?? metric, points: series(metric) }]}
               unit={unitLabel(fieldOf(metric))}
               bands={bandsOf(phases)}
@@ -919,7 +1006,7 @@ const SEGMENTS: [string, string][] = [
 /** Segmental lean or fat mass of the latest scan: one bar per segment on a shared scale, with the
  *  normal range when the sheet gives "% of normal", and each segment's change since the first scan. */
 function Segmental({ scans, unit }: { scans: InBodyScan[]; unit: "kg" | "lb" }) {
-  const theme = useChartTheme();
+  const screen = useChartTheme();
   const [kind, setKind] = useState<"lean" | "fat">("lean");
   const kgOf = (x: InBodyScan, seg: string) => x.values[`${kind}_${seg}_kg`];
   const withData = scans.filter((x) => SEGMENTS.some(([seg]) => kgOf(x, seg) != null));
@@ -946,12 +1033,63 @@ function Segmental({ scans, unit }: { scans: InBodyScan[]; unit: "kg" | "lb" }) 
   const x = d3.scaleLinear(domain, [labelW, W - valueW]);
   const H = top + rows.length * rowH + 4;
   const ticks = usePct ? [80, 100, 120, 140].filter((t) => t > domain[0] && t < domain[1]) : x.ticks(4);
-  const fill = kind === "lean" ? theme.categorical[0] : theme.categorical[1];
   const delta = (d: number | null) => (d == null || Math.abs(d) < 0.005 ? "" : ` (${d > 0 ? "+" : "−"}${Math.abs(toUnit(d, unit)).toFixed(1)})`);
+  const draw = (theme: ChartTheme, hide = false) => {
+    const fill = kind === "lean" ? theme.categorical[0] : theme.categorical[1];
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxWidth: 560 }} fontFamily="system-ui, sans-serif">
+            {usePct && (
+              <>
+                {/* InBody's normal range for segmental lean mass is about 90–110 % of ideal. */}
+                <rect x={x(90)} y={top - 4} width={x(110) - x(90)} height={H - top} fill={theme.grid} />
+                <text x={(x(90) + x(110)) / 2} y={top - 8} fontSize={9} fill={theme.muted} textAnchor="middle">
+                  normal
+                </text>
+              </>
+            )}
+            {ticks.map((t) => (
+              <g key={t}>
+                <line x1={x(t)} x2={x(t)} y1={top - 4} y2={H} stroke={t === 100 && usePct ? theme.muted : theme.gridStrong} strokeDasharray={t === 100 && usePct ? undefined : "2 3"} />
+                {!(usePct && t === 100) && (
+                  <text x={x(t)} y={top - 8} fontSize={9} fill={theme.muted} textAnchor="middle">
+                    {usePct ? `${t}%` : hide ? "" : toUnit(t, unit).toFixed(0)}
+                  </text>
+                )}
+              </g>
+            ))}
+            {rows.map((r, i) => {
+              const y = top + i * rowH;
+              const v = usePct ? r.pct : r.kg;
+              return (
+                <g key={r.seg}>
+                  <text x={0} y={y + rowH / 2 + 4} fontSize={11.5} fill={theme.text}>
+                    {r.name}
+                  </text>
+                  {v != null && (
+                    <rect x={x(domain[0])} y={y + 7} width={Math.max(2, x(v) - x(domain[0]))} height={rowH - 14} rx={3} fill={fill} />
+                  )}
+                  <text x={W} y={y + rowH / 2 + 4} fontSize={11} fill={theme.text} textAnchor="end">
+                    {hide ? "" : r.kg != null ? `${toUnit(r.kg, unit).toFixed(1)} ${unit}` : "—"}
+                    {!hide && usePct && r.pct != null ? ` · ${r.pct}%` : ""}
+                    {!hide && <tspan fill={theme.muted}>{delta(r.delta)}</tspan>}
+                  </text>
+                </g>
+              );
+            })}
+      </svg>
+    );
+  };
   return (
     <section className="card">
       <div className="title-row">
         <h2 className="section-title">Segmental {kind} mass</h2>
+        <ShareButton
+          icon
+          kind="visual"
+          title={`Segmental ${kind} mass`}
+          subtitle={formatDate(scan.measured_at_local)}
+          render={(theme, _w, _h, hide) => draw(theme, hide)}
+        />
         <div className="segmented small">
           <button className={kind === "lean" ? "active" : ""} onClick={() => setKind("lean")}>
             Lean
@@ -961,46 +1099,7 @@ function Segmental({ scans, unit }: { scans: InBodyScan[]; unit: "kg" | "lb" }) 
           </button>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxWidth: 560 }} fontFamily="system-ui, sans-serif">
-        {usePct && (
-          <>
-            {/* InBody's normal range for segmental lean mass is about 90–110 % of ideal. */}
-            <rect x={x(90)} y={top - 4} width={x(110) - x(90)} height={H - top} fill={theme.grid} />
-            <text x={(x(90) + x(110)) / 2} y={top - 8} fontSize={9} fill={theme.muted} textAnchor="middle">
-              normal
-            </text>
-          </>
-        )}
-        {ticks.map((t) => (
-          <g key={t}>
-            <line x1={x(t)} x2={x(t)} y1={top - 4} y2={H} stroke={t === 100 && usePct ? theme.muted : theme.gridStrong} strokeDasharray={t === 100 && usePct ? undefined : "2 3"} />
-            {!(usePct && t === 100) && (
-              <text x={x(t)} y={top - 8} fontSize={9} fill={theme.muted} textAnchor="middle">
-                {usePct ? `${t}%` : toUnit(t, unit).toFixed(0)}
-              </text>
-            )}
-          </g>
-        ))}
-        {rows.map((r, i) => {
-          const y = top + i * rowH;
-          const v = usePct ? r.pct : r.kg;
-          return (
-            <g key={r.seg}>
-              <text x={0} y={y + rowH / 2 + 4} fontSize={11.5} fill={theme.text}>
-                {r.name}
-              </text>
-              {v != null && (
-                <rect x={x(domain[0])} y={y + 7} width={Math.max(2, x(v) - x(domain[0]))} height={rowH - 14} rx={3} fill={fill} />
-              )}
-              <text x={W} y={y + rowH / 2 + 4} fontSize={11} fill={theme.text} textAnchor="end">
-                {r.kg != null ? `${toUnit(r.kg, unit).toFixed(1)} ${unit}` : "—"}
-                {usePct && r.pct != null ? ` · ${r.pct}%` : ""}
-                <tspan fill={theme.muted}>{delta(r.delta)}</tspan>
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+      {draw(screen)}
       <p className="muted small">
         {formatDate(scan.measured_at_local)}
         {first !== scan ? ` · changes in brackets since ${formatDate(first.measured_at_local)}` : ""}
@@ -1351,6 +1450,7 @@ function DietTab() {
         <RangePicker value={range} onChange={setRange} phases={phases} />
         <div className="section-label">Surplus (+) / deficit (−) from weight trend</div>
         <TimeSeriesChart
+          title="Surplus / deficit from weight trend"
           series={[{ id: "bal", label: "Balance", points: balance }]}
           unit="kcal"
           bands={bands}
@@ -1361,6 +1461,7 @@ function DietTab() {
         />
         <div className="section-label">Trend weight</div>
         <TimeSeriesChart
+          title="Trend weight"
           series={[{ id: "trend", label: "Trend", points: trend }]}
           unit={unit}
           bands={bands}
@@ -1372,6 +1473,7 @@ function DietTab() {
           <>
             <div className="section-label">Estimated TDEE and logged intake</div>
             <TimeSeriesChart
+              title="Estimated TDEE and logged intake"
               series={[
                 { id: "tdee", label: "TDEE", points: tdee },
                 { id: "in", label: "Intake", points: intake, style: "points" },

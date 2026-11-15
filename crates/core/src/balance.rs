@@ -153,7 +153,7 @@ impl Db {
         };
         let Some(year) = self.setting("birth_year")?.and_then(|y| y.parse::<i32>().ok()) else { return Ok(Err("profile")) };
         let Some(bw) = self.bodyweight_at(today)? else { return Ok(Err("bodyweight")) };
-        Ok(Ok(Who { sex, age: (today.year() - year) as f64, bodyweight_kg: Some(bw) }))
+        Ok(Ok(Who { sex, age: (today.year() - year) as f64, bodyweight_kg: Some(bw), ages: vec![] }))
     }
 
     fn sides(&self, today: NaiveDate) -> Result<Vec<Side>> {

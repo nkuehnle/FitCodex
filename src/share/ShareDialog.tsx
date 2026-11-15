@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api, type ExerciseStats, type InBodyScan, type Muscle, type WeighInRow, type WorkoutDetail } from "../api";
 import { usePrefs } from "../App";
+import { BarChart } from "../charts/BarChart";
 import { BodyMap, useHeatScale } from "../charts/BodyMap";
 import { inRange, today, type Range } from "../charts/RangePicker";
 import { TimeSeriesSvg, type TimeSeriesProps } from "../charts/TimeSeriesChart";
@@ -19,7 +20,9 @@ export type ShareKind =
   | { kind: "inbody" }
   | { kind: "count" }
   /** Any time-series chart, as it's shown (series, smoothing, phases). */
-  | { kind: "chart"; title: string; chart: TimeSeriesProps & { smooth: { on: boolean; span: number } } };
+  | { kind: "chart"; title: string; chart: TimeSeriesProps & { smooth: { on: boolean; span: number } } }
+  /** Any other chart: `render` draws it as SVG in the card's theme and size. */
+  | { kind: "visual"; title: string; subtitle?: string; lines?: string[]; render: NonNullable<CardContent["visual"]> };
 
 /** "Share" button; `icon` draws a compact share glyph instead (chart toolbars). */
 export function ShareButton(props: ShareKind & { icon?: boolean }) {
@@ -90,7 +93,8 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
 
   // Layout: header (title, subtitle, stats, lines) then the visual fills the rest.
   const statsH = content?.stats.length ? 150 : 0;
-  const linesH = (content?.lines.length ?? 0) * 44;
+  // Text lines, plus a gap so the last one doesn't touch the visual's own labels.
+  const linesH = content?.lines.length ? content.lines.length * 44 + 24 : 0;
   const top = PAD + 150 + statsH + linesH;
   const visualH = Math.max(200, H - top - PAD - 40);
   const visualW = W - PAD * 2;
@@ -336,6 +340,8 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
         ),
       };
     }
+    case "visual":
+      return { title: spec.title, subtitle: spec.subtitle ?? "", stats: [], lines: spec.lines ?? [], visual: spec.render };
     case "workout": {
       const d = (await api.workoutDetail(spec.workoutId)) as WorkoutDetail;
       const values = Object.fromEntries(d.muscle_sets);
@@ -480,7 +486,17 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
           { label: "Week streak", value: String(streak.current_weeks) },
         ],
         lines: [],
-        visual: null,
+        // The last half year, a bar a week.
+        visual: (theme, width, height, hide) => (
+          <BarChart
+            bars={weeks.slice(-26).map((x) => ({ key: x.start, label: x.start.slice(5), value: x.workouts }))}
+            theme={theme}
+            width={width}
+            height={Math.min(height, width * 0.6)}
+            hideNumbers={hide}
+            fontScale={2}
+          />
+        ),
       };
     }
   }

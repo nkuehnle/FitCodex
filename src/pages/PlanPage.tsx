@@ -630,15 +630,20 @@ function ScheduleTab() {
 function PhasesTab() {
   const [phases, setPhases] = useState<Phase[]>([]);
   const [editing, setEditing] = useState<Phase | null>(null);
-  const load = () => api.listPhases().then(setPhases);
+  // Cut / maintain / gain goals are edited under Body → Goal history, which keeps them in order.
+  const load = () =>
+    Promise.all([api.listPhases(), api.goalHistory()]).then(([ps, goals]) => {
+      const ids = new Set(goals.map((g) => g.phase_id));
+      setPhases(ps.filter((p) => p.id == null || !ids.has(p.id)));
+    });
   useEffect(() => {
     load();
   }, []);
   return (
     <>
       <p className="muted small">
-        Named date ranges that split and shade your charts. Program phases (PHUL, Upper/Lower…) and nutrition phases (bulk, cut) can
-        overlap.
+        Named date ranges that split and shade your charts. Program phases (PHUL, Upper/Lower…) and nutrition phases can overlap. Your
+        cut / maintain / gain goals are changed under <a href="#/body/weight">Body → Goal history</a>.
       </p>
       {phases.map((p) => (
         <button key={p.id} className="start-row" onClick={() => setEditing(p)}>

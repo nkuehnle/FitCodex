@@ -569,6 +569,12 @@ fn set_goal(state: State<AppState>, goal: Goal, start: String, weekly_rate_kg: O
 }
 
 #[tauri::command]
+fn edit_goal(state: State<AppState>, phase_id: i64, start: String, end: Option<String>, weekly_rate_kg: Option<f64>) -> CmdResult<()> {
+    let (s, e) = (date(&start)?, end.as_deref().map(date).transpose()?);
+    with(&state, |db| db.edit_goal(phase_id, s, e, weekly_rate_kg))
+}
+
+#[tauri::command]
 fn set_muscle_target(state: State<AppState>, muscle_id: String, min_sets: f64, max_sets: f64) -> CmdResult<()> {
     with(&state, |db| db.set_muscle_target(&muscle_id, min_sets, max_sets))
 }
@@ -1504,7 +1510,7 @@ pub fn run() {
             muscles, list_exercises, exercise_info, update_exercise, create_exercise, exercise_stats, volume_response,
             muscle_sets, weekly_muscle_sets, last_trained, workouts_per_period, streak, workout_series, discomfort_points,
             list_templates, save_template, archive_template, template_from_workout, active_schedule, save_schedule, routine_review, apply_routine_fix,
-            suggestion, projected_weekly_sets, muscle_targets, set_muscle_target, current_goal, set_goal, goal_history, progress_health, lift_status, dismiss_lift, week_progress, lift_goal, set_lift_goal, delete_lift_goal, phase_compare, list_phases, save_phase, delete_phase,
+            suggestion, projected_weekly_sets, muscle_targets, set_muscle_target, current_goal, set_goal, edit_goal, goal_history, progress_health, lift_status, dismiss_lift, week_progress, lift_goal, set_lift_goal, delete_lift_goal, phase_compare, list_phases, save_phase, delete_phase,
             propose_from_history, apply_history_proposal, programs, install_program, routine_text, routine_resources, preview_routine, import_routine,
             progress_report, save_text, share_text, copy_text, paste_text,
             weigh_ins, add_weigh_in, update_weigh_in, update_measurement, delete_weigh_in, inbody_fields, inbody_scans, save_inbody_scan, delete_inbody_scan, norm_reference, exercise_comparison, comparable_exercises, strength_balance,

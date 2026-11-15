@@ -383,6 +383,7 @@ function ExerciseDetail({ id }: { id: number }) {
               </div>
               <RangePicker value={range} onChange={setRange} phases={phases.filter((p) => p.lane === "program")} />
               <TimeSeriesChart
+                title={`${info.name}: ${metrics.find((m) => m[0] === metric)![1]}`}
                 series={[{ id: metric, label: metrics.find((m) => m[0] === metric)![1], points: series }]}
                 unit={metric === "reps" ? "reps" : unit}
                 markers={markers}

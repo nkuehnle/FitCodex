@@ -267,6 +267,7 @@ function MuscleDetail({
       .weeklyMuscleSets(range.from ?? undefined, range.to ?? undefined)
       .then((w) => setWeekly(w.filter((x) => x.muscle_id === stat.muscle_id)));
   }, [range, stat.muscle_id]);
+  const bars = weekly.map((w) => ({ key: w.week_start, label: w.week_start.slice(5), value: w.sets, tooltip: `Week of ${w.week_start}` }));
   return (
     <div>
       <h3 style={{ margin: "0 0 4px" }}>{name}</h3>
@@ -291,16 +292,19 @@ function MuscleDetail({
       </ul>
       {weekly.length > 1 && (
         <>
-          <div className="section-label">Sets per week</div>
-          <BarChart
-            bars={weekly.map((w) => ({
-              key: w.week_start,
-              label: w.week_start.slice(5),
-              value: w.sets,
-              tooltip: `Week of ${w.week_start}`,
-            }))}
-            height={140}
-          />
+          <div className="title-row">
+            <div className="section-label">Sets per week</div>
+            <ShareButton
+              icon
+              kind="visual"
+              title={`${name}: sets per week`}
+              subtitle={range.label}
+              render={(theme, width, height, hide) => (
+                <BarChart bars={bars} theme={theme} width={width} height={Math.min(height, width * 0.6)} hideNumbers={hide} fontScale={2} />
+              )}
+            />
+          </div>
+          <BarChart bars={bars} height={140} />
         </>
       )}
     </div>
@@ -587,7 +591,8 @@ function GroupTrendSection({
         </button>
       </div>
       <TimeSeriesChart
-        series={[{ id: group, label: group, points }]}
+        title={`Weekly ${metric}: ${groups.find((g) => g.id === group)?.name ?? group}`}
+        series={[{ id: group, label: groups.find((g) => g.id === group)?.name ?? group, points }]}
         unit={metric === "sets" ? "sets" : unit}
         bands={bandsOf(phases)}
         zero
@@ -623,9 +628,22 @@ function VolumeResponseSection({ muscles }: { muscles: Muscle[] }) {
         })),
     }))
     .filter((s) => s.points.length > 0);
+  const muscleName = muscles.find((m) => m.id === muscle)?.name ?? muscle;
   return (
     <section className="card">
-      <h2 className="section-title">Sets vs strength gained</h2>
+      <div className="title-row">
+        <h2 className="section-title">Sets vs strength gained</h2>
+        {points.length >= 3 && (
+          <ShareButton
+            icon
+            kind="visual"
+            title={`Sets vs strength gained: ${muscleName}`}
+            render={(theme, width, height, hide) => (
+              <ScatterChart series={series} xLabel="Sets a week" yLabel="Strength change, %" theme={theme} width={width} height={Math.min(height, width * 0.8)} hideNumbers={hide} fontScale={2} />
+            )}
+          />
+        )}
+      </div>
       <select className="select" value={muscle} onChange={(e) => setMuscle(e.target.value)}>
         {muscles.map((m) => (
           <option key={m.id} value={m.id}>
@@ -660,7 +678,7 @@ function DurationSection({ range, phases }: { range: Range; phases: Phase[] }) {
   return (
     <section className="card">
       <h2 className="section-title">Workout duration</h2>
-      <TimeSeriesChart series={[{ id: "dur", label: "Duration", points }]} unit="min" bands={bandsOf(phases)} height={200} />
+      <TimeSeriesChart title="Workout duration" series={[{ id: "dur", label: "Duration", points }]} unit="min" bands={bandsOf(phases)} height={200} />
     </section>
   );
 }
@@ -688,9 +706,32 @@ function DiscomfortSection() {
         .map((p) => ({ x: Math.round(toUnit(p.max_weight_kg!, unit)), y: p[j]!, label: p.at.slice(0, 10) })),
     }))
     .filter((s) => s.points.length > 0);
+  const exName = exercises.find(([id]) => id === ex)?.[1] ?? "";
   return (
     <section className="card">
-      <h2 className="section-title">Joint discomfort vs load</h2>
+      <div className="title-row">
+        <h2 className="section-title">Joint discomfort vs load</h2>
+        {series.length > 0 && (
+          <ShareButton
+            icon
+            kind="visual"
+            title={`Joint discomfort vs load: ${exName}`}
+            render={(theme, width, height, hide) => (
+              <ScatterChart
+                series={series}
+                xLabel={`Heaviest set (${unit})`}
+                yLabel="Discomfort 1–5"
+                yDomain={[1, 5]}
+                theme={theme}
+                width={width}
+                height={Math.min(height, width * 0.8)}
+                hideNumbers={hide}
+                fontScale={2}
+              />
+            )}
+          />
+        )}
+      </div>
       {pts.length === 0 ? (
         <p className="muted small">
           Rate elbow, knee or shoulder discomfort (1–5) under “Notes & joints” during a workout and it will show up here against the weight

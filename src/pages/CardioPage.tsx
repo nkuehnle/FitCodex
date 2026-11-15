@@ -3,6 +3,7 @@ import { api, type CardioSession, type ExerciseInfo } from "../api";
 import { usePrefs } from "../App";
 import { BarChart } from "../charts/BarChart";
 import { TimeSeriesChart } from "../charts/TimeSeriesChart";
+import { ShareButton } from "../share/ShareDialog";
 import { distText, paceMode, paceText, paceValue, weeklyCardio } from "../cardio";
 import { ProgressHeader } from "../components/ProgressHeader";
 import { formatClock, formatDate, nowLocal, parseLocal } from "../format";
@@ -32,6 +33,12 @@ export default function CardioPage({ log }: { log?: boolean }) {
   if (!sessions) return null;
 
   const weeks = weeklyCardio(sessions, 12);
+  const bars = weeks.map((w) => ({
+    key: w.week,
+    label: formatDate(w.week).replace(/^\w+, /, "").replace(/, \d{4}$/, ""),
+    value: Math.round(w.minutes),
+    tooltip: `${Math.round(w.minutes)} min · ${w.sessions} session${w.sessions === 1 ? "" : "s"}${w.distanceM ? ` · ${distText(w.distanceM, unit)}` : ""}`,
+  }));
   const thisWeek = weeks[weeks.length - 1];
   const activities = [...new Set([...sessions].reverse().map((s) => s.exercise_id))];
   const pct = Math.min(1, thisWeek.minutes / Math.max(1, goal));
@@ -92,19 +99,18 @@ export default function CardioPage({ log }: { log?: boolean }) {
       </section>
 
       <section className="card">
-        <h2 className="section-title">Minutes per week</h2>
-        <BarChart
-          bars={weeks.map((w) => ({
-            key: w.week,
-            label: formatDate(w.week).replace(/^\w+, /, "").replace(/, \d{4}$/, ""),
-            value: Math.round(w.minutes),
-            tooltip: `${Math.round(w.minutes)} min · ${w.sessions} session${w.sessions === 1 ? "" : "s"}${w.distanceM ? ` · ${distText(w.distanceM, unit)}` : ""}`,
-          }))}
-          unit="min"
-          goal={goal}
-          labelEvery={2}
-          height={180}
-        />
+        <div className="title-row">
+          <h2 className="section-title">Minutes per week</h2>
+          <ShareButton
+            icon
+            kind="visual"
+            title="Cardio minutes per week"
+            render={(theme, width, height, hide) => (
+              <BarChart bars={bars} unit="min" goal={goal} labelEvery={2} theme={theme} width={width} height={Math.min(height, width * 0.6)} hideNumbers={hide} fontScale={2} />
+            )}
+          />
+        </div>
+        <BarChart bars={bars} unit="min" goal={goal} labelEvery={2} height={180} />
         <p className="muted small">The dashed line is your weekly goal.</p>
       </section>
 
@@ -171,6 +177,7 @@ export function CardioActivity({ sessions }: { sessions: CardioSession[] }) {
       </div>
       {timed.length >= 2 && (
         <TimeSeriesChart
+          title={`${name}: ${mode === "speed" ? "speed" : "pace"}`}
           series={[{ id: "pace", label: mode === "speed" ? "Speed" : "Pace", points: timed.map((s) => ({ t: parseLocal(s.at), v: value(s) })) }]}
           unit={paceLabel}
           yFormat={(v) => (mode === "speed" ? v.toFixed(1) : formatClock(v))}

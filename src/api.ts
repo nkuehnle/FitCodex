@@ -691,6 +691,8 @@ export interface NormWho {
   sex: "male" | "female";
   age: number;
   bodyweight_kg: number | null;
+  /** Starts of the age groups to compare against instead of `age`; empty = your age. */
+  ages: number[];
 }
 
 export interface NormReference {
@@ -879,6 +881,9 @@ export const api = {
     invoke<{ phase_id: number; goal: Goal; start_date: string; end_date: string | null; weekly_rate_kg: number | null }[]>("goal_history"),
   setGoal: (goal: Goal, start?: string, weeklyRateKg?: number | null) =>
     invoke<void>("set_goal", { goal, start: start ?? localToday(), weeklyRateKg: weeklyRateKg ?? null }),
+  /** Changes a goal stretch's dates and weekly target; overlapped neighbors are trimmed. `end` null = ongoing. */
+  editGoal: (phaseId: number, start: string, end: string | null, weeklyRateKg: number | null) =>
+    invoke<void>("edit_goal", { phaseId, start, end, weeklyRateKg }),
   setMuscleTarget: (muscleId: string, minSets: number, maxSets: number) =>
     invoke<void>("set_muscle_target", { muscleId, minSets, maxSets }),
   listPhases: () => invoke<Phase[]>("list_phases"),

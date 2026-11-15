@@ -437,6 +437,50 @@ impl Db {
         Ok(())
     }
 
+    /// Changes a goal stretch's start, end (`None` = ongoing) and weekly target. Neighbors it now
+    /// overlaps are trimmed back to it; one it would cover entirely, or sit inside, is an error.
+    /// Gaps are kept.
+    pub fn edit_goal(&mut self, phase_id: i64, start: NaiveDate, end: Option<NaiveDate>, weekly_rate_kg: Option<f64>) -> Result<()> {
+        if end.is_some_and(|e| e < start) {
+            return Err(Error::Format("the goal ends before it starts".into()));
+        }
+        let day = |d: &str| parse_date(d).expect("stored dates are valid");
+        let others: Vec<GoalEntry> = self.goal_history()?.into_iter().filter(|g| g.phase_id != phase_id).collect();
+        let tx = self.conn_mut().transaction()?;
+        for o in others {
+            let (os, oe) = (day(&o.start_date), o.end_date.as_deref().map(day));
+            let overlaps = oe.is_none_or(|oe| oe >= start) && end.is_none_or(|e| os <= e);
+            if !overlaps {
+                continue;
+            }
+            let covered = os >= start && end.is_none_or(|e| oe.is_some_and(|oe| oe <= e));
+            let inside = os < start && end.is_some_and(|e| oe.is_none_or(|oe| oe > e));
+            if covered || inside {
+                return Err(Error::Format(format!(
+                    "those dates would {} the {} goal from {}; change or replace that one instead",
+                    if covered { "cover" } else { "fall inside" },
+                    o.goal.label().to_lowercase(),
+                    o.start_date
+                )));
+            }
+            if os < start {
+                tx.execute("UPDATE phase SET end_date = ?2 WHERE id = ?1", params![o.phase_id, (start - Duration::days(1)).to_string()])?;
+            } else {
+                let e = end.expect("an open end would cover it");
+                tx.execute("UPDATE phase SET start_date = ?2 WHERE id = ?1", params![o.phase_id, (e + Duration::days(1)).to_string()])?;
+            }
+        }
+        let n = tx.execute(
+            "UPDATE phase SET start_date = ?2, end_date = ?3, weekly_rate_kg = ?4 WHERE id = ?1 AND lane = 'nutrition'",
+            params![phase_id, start.to_string(), end.map(|e| e.to_string()), weekly_rate_kg],
+        )?;
+        if n == 0 {
+            return Err(Error::Format("no such goal".into()));
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn muscle_targets(&self, today: NaiveDate) -> Result<Vec<MuscleTarget>> {
         let goal = self.current_goal(today)?;
         let mut stmt = self.conn().prepare(
@@ -826,6 +870,35 @@ mod tests {
         assert_eq!(db.current_goal(d("2026-11-02")).unwrap(), Some(Goal::Maintain));
         // Program phases are separate and untouched.
         assert!(db.list_phases().unwrap().iter().all(|p| p.lane == "nutrition"));
+    }
+
+    #[test]
+    fn goal_dates_trim_neighbors() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.set_goal(Goal::Gain, d("2026-01-01"), None).unwrap();
+        db.set_goal(Goal::Cut, d("2026-03-01"), Some(-0.5)).unwrap();
+        db.set_goal(Goal::Maintain, d("2026-09-01"), None).unwrap();
+        let id = |db: &Db, i: usize| db.goal_history().unwrap()[i].phase_id;
+        let dates = |db: &Db| db.goal_history().unwrap().into_iter().map(|g| (g.start_date, g.end_date)).collect::<Vec<_>>();
+        let s = |x: &str| x.to_string();
+        // The cut really ran Feb 15 – Jul 31: gain is trimmed, a gap is left before maintain.
+        db.edit_goal(id(&db, 1), d("2026-02-15"), Some(d("2026-07-31")), Some(-0.4)).unwrap();
+        assert_eq!(db.goal_history().unwrap()[1].weekly_rate_kg, Some(-0.4));
+        assert_eq!(
+            dates(&db),
+            [(s("2026-01-01"), Some(s("2026-02-14"))), (s("2026-02-15"), Some(s("2026-07-31"))), (s("2026-09-01"), None)]
+        );
+        // Running past maintain's start pushes it back.
+        db.edit_goal(id(&db, 1), d("2026-02-15"), Some(d("2026-09-10")), None).unwrap();
+        assert_eq!(dates(&db)[2], (s("2026-09-11"), None));
+        // Covering a whole goal, or ending before starting, is refused and changes nothing.
+        assert!(db.edit_goal(id(&db, 1), d("2025-12-01"), Some(d("2026-08-01")), None).is_err());
+        assert!(db.edit_goal(id(&db, 1), d("2026-05-01"), Some(d("2026-04-01")), None).is_err());
+        assert!(db.edit_goal(id(&db, 1), d("2026-02-15"), None, None).is_err());
+        assert_eq!(dates(&db)[0], (s("2026-01-01"), Some(s("2026-02-14"))));
+        // Ending the current goal leaves no goal after it.
+        db.edit_goal(id(&db, 2), d("2026-09-11"), Some(d("2026-10-31")), None).unwrap();
+        assert_eq!(db.current_goal(d("2026-11-15")).unwrap(), None);
     }
 
     #[test]

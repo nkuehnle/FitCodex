@@ -4,7 +4,7 @@ import { usePrefs } from "../App";
 import { TimeSeriesChart, type Series } from "../charts/TimeSeriesChart";
 import { bodyFatSeries, type Pt, type Sex } from "../bodyfat";
 import { toUnit } from "../format";
-import { Standing, whoOf } from "./Standing";
+import { AGE_BRACKETS, parseAges, Standing, whoOf } from "./Standing";
 
 const CM_PER_IN = 2.54;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -20,12 +20,14 @@ export function BodyFatTab() {
   const [heightCm, setHeightCm] = useState<number | null>(null);
   const [heightText, setHeightText] = useState("");
   const [birthYear, setBirthYear] = useState("");
+  const [ages, setAges] = useState<number[]>([]);
   const inches = unit === "lb";
 
   useEffect(() => {
     Promise.all([api.measurements(), api.inbodyScans(), api.weighIns(true)]).then(([m, scans, w]) => setData({ m, scans, w }));
     api.getSetting("sex").then((s) => setSex(s === "male" || s === "female" ? s : null));
     api.getSetting("birth_year").then((y) => setBirthYear(y ?? ""));
+    api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
     api.getSetting("height_cm").then((h) => {
       const v = h ? Number(h) : null;
       setHeightCm(v);
@@ -51,6 +53,20 @@ export function BodyFatTab() {
   const saveBirthYear = (text: string) => {
     setBirthYear(text);
     if (/^(19|20)\d\d$/.test(text)) api.setSetting("birth_year", text);
+  };
+
+  const saveAges = (v: number[]) => {
+    setAges(v);
+    api.setSetting("compare_ages", v.join(","));
+  };
+  // Switching to age groups starts from the one you're in (or 30–39 without a birth year).
+  const ownBracket = () => {
+    const age = new Date().getFullYear() - Number(birthYear);
+    return [...AGE_BRACKETS].reverse().find((b) => age >= b.from)?.from ?? 30;
+  };
+  const toggleAge = (from: number) => {
+    const next = ages.includes(from) ? ages.filter((a) => a !== from) : [...ages, from].sort((a, b) => a - b);
+    if (next.length) saveAges(next);
   };
 
   const fat: Series[] = [
@@ -91,7 +107,7 @@ export function BodyFatTab() {
       <span className="muted">—</span>
     );
   const needsProfile = !sex || !heightCm;
-  const who = whoOf(sex, /^(19|20)\d\d$/.test(birthYear) ? birthYear : null, null);
+  const who = whoOf(sex, /^(19|20)\d\d$/.test(birthYear) ? birthYear : null, null, ages);
   const compare = who && heightCm ? comparisons(data!.scans, s, heightCm) : [];
 
   return (
@@ -122,15 +138,36 @@ export function BodyFatTab() {
             />
           </label>
         </div>
+        <div className="row">
+          <span className="small muted">Compare with:</span>
+          <div className="segmented small">
+            <button className={!ages.length ? "active" : ""} onClick={() => ages.length && saveAges([])}>
+              My age
+            </button>
+            <button className={ages.length ? "active" : ""} onClick={() => !ages.length && saveAges([ownBracket()])}>
+              Age groups
+            </button>
+          </div>
+          {ages.length > 0 && (
+            <div className="segmented small age-brackets">
+              {AGE_BRACKETS.map((b) => (
+                <button key={b.from} className={ages.includes(b.from) ? "active" : ""} aria-pressed={ages.includes(b.from)} onClick={() => toggleAge(b.from)}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <p className="muted small">
           Navy uses waist and neck{sex === "female" ? " and hips" : ""} measured within two weeks of each other; RFM uses waist
-          only. Both are estimates, typically within ±3–4 % of a scan. Birth year enables the percentile comparisons.
+          only. Both are estimates, typically within ±3–4 % of a scan. Percentile comparisons need your birth year, or pick age groups to
+          compare with instead (several are pooled together).
         </p>
       </section>
       <section className="card">
         <h2 className="section-title">Body fat %</h2>
         {fat.length ? (
-          <TimeSeriesChart series={fat} unit="%" height={240} yFormat={axis} />
+          <TimeSeriesChart series={fat} unit="%" height={240} yFormat={axis} title="Body fat %" />
         ) : (
           <p className="muted small">
             {needsProfile
@@ -146,7 +183,7 @@ export function BodyFatTab() {
             <Standing key={c.metric} {...c} who={who} />
           ))}
           <p className="muted small">
-            Against US adults of your sex and age, measured by DXA scan. InBody and tape estimates read differently from DXA (often a few
+            Against US adults of your sex and {ages.length ? "chosen age groups" : "age"}, measured by DXA scan. InBody and tape estimates read differently from DXA (often a few
             points lower body fat), so treat these as a rough guide.
           </p>
         </section>
@@ -180,7 +217,7 @@ export function BodyFatTab() {
       <section className="card">
         <h2 className="section-title">Lean and muscle mass</h2>
         {lean.length ? (
-          <TimeSeriesChart series={lean} unit={unit} height={240} yFormat={axis} />
+          <TimeSeriesChart series={lean} unit={unit} height={240} yFormat={axis} title="Lean and muscle mass" />
         ) : (
           <p className="muted small">Needs body fat readings (above) and weigh-ins within a week of them.</p>
         )}
@@ -188,7 +225,7 @@ export function BodyFatTab() {
       {fatMass.length > 0 && (
         <section className="card">
           <h2 className="section-title">Fat mass</h2>
-          <TimeSeriesChart series={fatMass} unit={unit} height={220} yFormat={axis} />
+          <TimeSeriesChart series={fatMass} unit={unit} height={220} yFormat={axis} title="Fat mass" />
         </section>
       )}
       <p className="muted small">

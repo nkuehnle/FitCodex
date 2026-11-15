@@ -37,6 +37,91 @@ pub struct Who {
     pub age: f64,
     /// Needed for strength.
     pub bodyweight_kg: Option<f64>,
+    /// Starts of the [`AGE_BRACKETS`] to compare against instead of your own age; empty = your age.
+    #[serde(default)]
+    pub ages: Vec<f64>,
+}
+
+/// Age groups you can compare against instead of your own age: (from, to), inclusive.
+pub const AGE_BRACKETS: &[(f64, f64)] = &[(18.0, 29.0), (30.0, 39.0), (40.0, 49.0), (50.0, 59.0), (60.0, 69.0), (70.0, 79.0), (80.0, 89.0)];
+
+/// Ages to compare against: yours, or every year of age in the chosen brackets (each counted equally).
+fn ages_of(who: &Who) -> Vec<f64> {
+    let picked: Vec<f64> = AGE_BRACKETS
+        .iter()
+        .filter(|b| who.ages.contains(&b.0))
+        .flat_map(|&(a, b)| (a as i32..=b as i32).map(f64::from))
+        .collect();
+    if picked.is_empty() {
+        vec![who.age]
+    } else {
+        picked
+    }
+}
+
+/// "30–49", "18–29, 60+": age ranges (from, inclusive to; `None` = open), contiguous ones merged.
+fn ages_text(mut ranges: Vec<(f64, Option<f64>)>) -> String {
+    ranges.sort_by(|a, b| a.0.total_cmp(&b.0));
+    ranges.dedup();
+    let mut merged: Vec<(f64, Option<f64>)> = Vec::new();
+    for r in ranges {
+        match merged.last_mut() {
+            Some(last) if last.1.is_some_and(|to| r.0 <= to + 1.0) => last.1 = last.1.zip(r.1).map(|(x, y)| x.max(y)),
+            _ => merged.push(r),
+        }
+    }
+    merged.iter().map(|(a, b)| b.map_or(format!("{a}+"), |b| format!("{a}–{b}"))).collect::<Vec<_>>().join(", ")
+}
+
+/// The chosen brackets, for display ("30–49").
+fn brackets_text(who: &Who) -> String {
+    ages_text(AGE_BRACKETS.iter().filter(|b| who.ages.contains(&b.0)).map(|&(a, b)| (a, (b < 80.0).then_some(b))).collect())
+}
+
+/// The age range a table band covers.
+fn band_range(age_from: &[f64], band: usize) -> (f64, Option<f64>) {
+    (age_from[band], age_from.get(band + 1).map(|n| n - 1.0))
+}
+
+/// Like [`rank_in`], but extends the end segments past the table (within 0–100) so pooled
+/// tails aren't pinned to the most extreme group.
+fn rank_ext(points: &[(f64, f64)], x: f64) -> f64 {
+    let n = points.len();
+    let line = |(p0, v0): (f64, f64), (p1, v1): (f64, f64)| if v1 > v0 { p0 + (p1 - p0) * (x - v0) / (v1 - v0) } else { p0 };
+    if x < points[0].1 {
+        line(points[0], points[1]).max(0.0)
+    } else if x > points[n - 1].1 {
+        line(points[n - 2], points[n - 1]).min(100.0)
+    } else {
+        rank_in(points, x)
+    }
+}
+
+/// Pools percentile curves (ascending (percentile, value) points, all at the same percentiles),
+/// counting each equally: the pooled percentile of a value is the average of its percentiles.
+fn pool(curves: &[Vec<(f64, f64)>]) -> Vec<(f64, f64)> {
+    if curves.windows(2).all(|w| w[0] == w[1]) {
+        return curves[0].clone();
+    }
+    let pct = |x: f64| curves.iter().map(|c| rank_ext(c, x)).sum::<f64>() / curves.len() as f64;
+    let lo0 = curves.iter().map(|c| c[0].1).fold(f64::INFINITY, f64::min);
+    let hi0 = curves.iter().map(|c| c[c.len() - 1].1).fold(f64::NEG_INFINITY, f64::max);
+    let span = hi0 - lo0;
+    curves[0]
+        .iter()
+        .map(|&(p, _)| {
+            let (mut lo, mut hi) = (lo0 - span, hi0 + span);
+            for _ in 0..60 {
+                let mid = (lo + hi) / 2.0;
+                if pct(mid) < p {
+                    lo = mid
+                } else {
+                    hi = mid
+                }
+            }
+            (p, (lo + hi) / 2.0)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,7 +222,11 @@ fn composition(metric: &str, who: &Who, values: &[f64]) -> Option<Reference> {
         Sex::Female => &by_sex.female,
     };
     // The study publishes separate curves for the three groups it sampled; use the average percentile.
-    let curves: Vec<_> = [&g.white, &g.black, &g.mexican_american].iter().map(|rows| lms_at(rows, who.age)).collect();
+    // Chosen age brackets are pooled the same way, a curve per year of age.
+    let curves: Vec<_> = ages_of(who)
+        .into_iter()
+        .flat_map(|age| [&g.white, &g.black, &g.mexican_american].map(|rows| lms_at(rows, age)))
+        .collect();
     let pct = |x: f64| curves.iter().map(|c| normal_cdf(lms_z(x, *c))).sum::<f64>() / curves.len() as f64 * 100.0;
     let ranks = values.iter().map(|&x| (x > 0.0).then(|| pct(x).clamp(MIN_PCT, MAX_PCT))).collect();
     // Points: invert the averaged percentile by bisection.
@@ -161,7 +250,11 @@ fn composition(metric: &str, who: &Who, values: &[f64]) -> Option<Reference> {
         ranks,
         tiers: vec![],
         tier_of: vec![None; values.len()],
-        population: format!("US {} aged about {:.0}, measured by DXA scan", sex_word(who.sex), who.age.clamp(20.0, 85.0)),
+        population: if who.ages.is_empty() {
+            format!("US {} aged about {:.0}, measured by DXA scan", sex_word(who.sex), who.age.clamp(20.0, 85.0))
+        } else {
+            format!("US {} aged {}, measured by DXA scan", sex_word(who.sex), brackets_text(who))
+        },
         source: "Kelly, Wilson & Heymsfield 2009, NHANES 1999–2004 (PLoS ONE 4: e7038)".into(),
         title: String::new(),
         unit: String::new(),
@@ -236,11 +329,12 @@ fn size(metric: &str, who: &Who, values: &[f64]) -> Option<Reference> {
         Sex::Male => &by_sex.male,
         Sex::Female => &by_sex.female,
     };
-    let band = band_of(&t.age_from, who.age);
-    let points: Vec<(f64, f64)> = t.percentiles.iter().copied().zip(rows[band].iter().copied()).collect();
+    let bands: Vec<usize> = ages_of(who).into_iter().map(|a| band_of(&t.age_from, a)).collect();
+    let curves: Vec<Vec<(f64, f64)>> =
+        bands.iter().map(|&b| t.percentiles.iter().copied().zip(rows[b].iter().copied()).collect()).collect();
+    let points = pool(&curves);
     let ranks = values.iter().map(|&x| (x > 0.0).then(|| rank_in(&points, x))).collect();
-    let from = t.age_from[band];
-    let ages = if band + 1 < t.age_from.len() { format!("{}–{}", from, t.age_from[band + 1] - 1.0) } else { format!("{from}+") };
+    let ages = ages_text(bands.iter().map(|&b| band_range(&t.age_from, b)).collect());
     Some(Reference {
         points,
         ranks,
@@ -361,23 +455,35 @@ pub fn lift_reference(tables: &LiftTables, lift: &str, who: &Who, values: &[f64]
         Sex::Male => &t.male,
         Sex::Female => &t.female,
     };
-    let band = band_of(&t.age_from, who.age.max(t.age_from[0]));
-    let row = &grid[band];
     // Blend the two nearest bodyweight bins with data, by distance to their middles.
     let mid = |i: usize| t.bw_from[i] + 5.0;
-    let filled: Vec<usize> = (0..row.len()).filter(|&i| row[i].is_some()).collect();
-    let below = filled.iter().rev().find(|&&i| mid(i) <= bw).copied();
-    let above = filled.iter().find(|&&i| mid(i) > bw).copied();
-    let p: Vec<f64> = match (below, above) {
-        (Some(a), Some(b)) => {
-            let w = (bw - mid(a)) / (mid(b) - mid(a));
-            let (pa, pb) = (&row[a].as_ref()?.p, &row[b].as_ref()?.p);
-            pa.iter().zip(pb).map(|(x, y)| x + (y - x) * w).collect()
+    let at_band = |band: usize| -> Option<Vec<f64>> {
+        let row = &grid[band];
+        let filled: Vec<usize> = (0..row.len()).filter(|&i| row[i].is_some()).collect();
+        let below = filled.iter().rev().find(|&&i| mid(i) <= bw).copied();
+        let above = filled.iter().find(|&&i| mid(i) > bw).copied();
+        match (below, above) {
+            (Some(a), Some(b)) => {
+                let w = (bw - mid(a)) / (mid(b) - mid(a));
+                let (pa, pb) = (&row[a].as_ref()?.p, &row[b].as_ref()?.p);
+                Some(pa.iter().zip(pb).map(|(x, y)| x + (y - x) * w).collect())
+            }
+            (Some(i), None) | (None, Some(i)) => Some(row[i].as_ref()?.p.clone()),
+            (None, None) => None,
         }
-        (Some(i), None) | (None, Some(i)) => row[i].as_ref()?.p.clone(),
-        (None, None) => return None,
     };
-    let points: Vec<(f64, f64)> = tables.percentiles.iter().copied().zip(p.iter().copied()).collect();
+    // Each age counts once; bands without data for your bodyweight are left out.
+    let found: Vec<(usize, Vec<f64>)> = ages_of(who)
+        .into_iter()
+        .map(|a| band_of(&t.age_from, a.max(t.age_from[0])))
+        .filter_map(|b| Some((b, at_band(b)?)))
+        .collect();
+    if found.is_empty() {
+        return None;
+    }
+    let curves: Vec<Vec<(f64, f64)>> =
+        found.iter().map(|(_, p)| tables.percentiles.iter().copied().zip(p.iter().copied()).collect()).collect();
+    let points = pool(&curves);
     let g = group(lift);
     let tiers: Vec<(String, f64)> = if g.tiers {
         let at = |pct: f64| points.iter().find(|q| q.0 == pct).map(|q| q.1).unwrap();
@@ -391,14 +497,7 @@ pub fn lift_reference(tables: &LiftTables, lift: &str, who: &Who, values: &[f64]
         .map(|&x| (x > 0.0 && !tiers.is_empty()).then(|| tiers.iter().rposition(|(_, from)| x >= *from).unwrap_or(0)))
         .collect();
     let ranks = values.iter().map(|&x| (x > 0.0).then(|| rank_in(&points, x))).collect();
-    let from = t.age_from[band];
-    let ages = if t.age_from.len() == 1 {
-        "18+".to_string()
-    } else if band + 1 < t.age_from.len() {
-        format!("{}–{}", from, t.age_from[band + 1] - 1.0)
-    } else {
-        format!("{from}+")
-    };
+    let ages = ages_text(found.iter().map(|(b, _)| band_range(&t.age_from, *b)).collect());
     Some(Reference {
         points,
         ranks,
@@ -655,7 +754,7 @@ mod tests {
     use super::*;
 
     fn who(sex: Sex, age: f64) -> Who {
-        Who { sex, age, bodyweight_kg: Some(85.0) }
+        Who { sex, age, bodyweight_kg: Some(85.0), ages: vec![] }
     }
 
     fn white_men(metric: &str) -> &'static [[f64; 4]] {
@@ -681,6 +780,33 @@ mod tests {
         let (l, m, s): (f64, f64, f64) = (-1.115, 18.98, 2.50 / 18.98);
         let x = m * (1.0 + l * s).powf(1.0 / l);
         assert!((normal_cdf(lms_z(x, lms_at(white_men("lmi"), 20.0))) - 0.8413).abs() < 5e-4);
+    }
+
+    #[test]
+    fn age_text_merges_ranges() {
+        assert_eq!(ages_text(vec![(30.0, Some(39.0)), (40.0, Some(49.0)), (70.0, None)]), "30–49, 70+");
+        assert_eq!(ages_text(vec![(18.0, Some(39.0)), (18.0, Some(39.0)), (40.0, None)]), "18+");
+    }
+
+    #[test]
+    fn age_brackets_pool_between_their_groups() {
+        let at = |w: &Who, m: &str| reference(m, w, &[90.0]).unwrap();
+        let mut w = who(Sex::Male, 25.0);
+        for m in ["weight_kg", "fmi"] {
+            w.ages = vec![];
+            let young = at(&w, m);
+            w.ages = vec![60.0];
+            let old = at(&w, m);
+            w.ages = vec![18.0, 60.0];
+            let both = at(&w, m);
+            let med = |r: &Reference| r.points.iter().find(|p| p.0 == 50.0).unwrap().1;
+            let (lo, hi) = (med(&young).min(med(&old)), med(&young).max(med(&old)));
+            assert!(med(&both) > lo && med(&both) < hi, "{m}");
+            assert!(both.points.windows(2).all(|p| p[0].1 <= p[1].1), "{m}");
+        }
+        assert_eq!(at(&w, "weight_kg").population, "US men aged 20–29, 60–69");
+        let lift = lift_reference(bundled_lifts(), "squat", &Who { ages: vec![30.0, 40.0], ..who(Sex::Male, 25.0) }, &[150.0]).unwrap();
+        assert!(lift.population.contains("aged 18–49"), "{}", lift.population);
     }
 
     #[test]
@@ -794,7 +920,7 @@ mod tests {
         }
         csv += "900,Male,30,180,5000,,,,\n901,,30,180,300,,,,\n902,Female,12,100,100,,,,\n";
         let t = crossfit_tables(csv.as_bytes()).unwrap();
-        let w = Who { sex: Sex::Male, age: 30.0, bodyweight_kg: Some(180.0 * LB) };
+        let w = Who { sex: Sex::Male, age: 30.0, bodyweight_kg: Some(180.0 * LB), ages: vec![] };
         let cf = lift_reference(&t, "cf_squat", &w, &[349.5 * LB]).unwrap();
         assert_eq!(cf.title, "CrossFit athletes");
         assert!(cf.tiers.is_empty());
