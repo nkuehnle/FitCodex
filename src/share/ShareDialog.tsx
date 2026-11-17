@@ -16,7 +16,8 @@ export type ShareKind =
   | { kind: "workout"; workoutId: number }
   | { kind: "exercise"; exerciseId: number }
   | { kind: "bodymap"; range: Range }
-  | { kind: "bodyweight"; range: Range }
+  /** The bodyweight chart as it's shown, plus the change over the range. */
+  | { kind: "bodyweight"; range: Range; chart: TimeSeriesProps & { smooth: { on: boolean; span: number } } }
   | { kind: "inbody" }
   | { kind: "count" }
   /** Any time-series chart, as it's shown (series, smoothing, phases). */
@@ -68,9 +69,19 @@ interface CardContent {
 
 function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }) {
   const { unit } = usePrefs();
-  const [style, setStyle] = useState<"dark" | "light">(document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
-  const [size, setSize] = useState<"square" | "story">("square");
-  const [hide, setHide] = useState(false);
+  const [style, setStyleState] = useState<"dark" | "light">(
+    () => stored(STYLE_KEY, ["dark", "light"]) ?? (document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"),
+  );
+  const [size, setSizeState] = useState<"square" | "story">(() => stored(SIZE_KEY, ["square", "story"]) ?? "square");
+  const setStyle = (v: "dark" | "light") => {
+    setStyleState(v);
+    store(STYLE_KEY, v);
+  };
+  const setSize = (v: "square" | "story") => {
+    setSizeState(v);
+    store(SIZE_KEY, v);
+  };
+  const [hide, setHide] = useState(spec.kind === "chart" || spec.kind === "bodyweight" ? !!spec.chart.hideNumbers : false);
   const [content, setContent] = useState<CardContent | null>(null);
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
@@ -219,6 +230,25 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
       </div>
     </Modal>
   );
+}
+
+/** Dark/light and square/story are remembered across shares and restarts. */
+const STYLE_KEY = "fitledger.share.style";
+const SIZE_KEY = "fitledger.share.size";
+function stored<T extends string>(key: string, allowed: T[]): T | null {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v as T) ? (v as T) : null;
+  } catch {
+    return null;
+  }
+}
+function store(key: string, v: string) {
+  try {
+    localStorage.setItem(key, v);
+  } catch {
+    // Storage unavailable: the choice lasts until the dialog closes.
+  }
 }
 
 function slug(s: string) {
@@ -414,7 +444,6 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
     }
     case "bodyweight": {
       const rows = ((await api.weighIns(false)) as WeighInRow[]).filter((r) => inRange(r.at, spec.range));
-      const pts = rows.map((r) => ({ t: parseLocal(r.at), v: toUnit(r.weight_kg, unit) }));
       const change = rows.length > 1 ? rows[rows.length - 1].weight_kg - rows[0].weight_kg : null;
       return {
         title: "Bodyweight",
@@ -423,17 +452,7 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
           change != null ? [{ label: "Change", value: `${change >= 0 ? "+" : "−"}${formatWeight(Math.abs(change), unit)} ${unit}` }] : [],
         lines: [],
         visual: (theme, width, h, hide) => (
-          <TimeSeriesSvg
-            series={[{ id: "bw", label: "Bodyweight", points: pts }]}
-            unit={unit}
-            theme={theme}
-            width={width}
-            height={h}
-            hideNumbers={hide}
-            smooth={{ on: true, span: 0.15 }}
-            fontScale={2}
-            yFormat={(v) => v.toFixed(0)}
-          />
+          <TimeSeriesSvg {...spec.chart} theme={theme} width={width} height={h} hideNumbers={hide} fontScale={2} />
         ),
       };
     }

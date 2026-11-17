@@ -484,6 +484,7 @@ function BodyweightTab() {
   const [hide, setHide] = useState(false);
   const [showTarget, setShowTarget] = useState(true);
   const [goals, setGoals] = useState<GoalStretch[]>([]);
+  const [view, setView] = useState({ smooth: { on: false, span: 0.15 }, showBands: true });
   const load = () => api.weighIns(true).then(setRows);
   useEffect(() => {
     load();
@@ -547,7 +548,19 @@ function BodyweightTab() {
       <section className="card">
         <div className="title-row">
           <h2 className="section-title">Bodyweight</h2>
-          <ShareButton kind="bodyweight" range={range} />
+          <ShareButton
+            kind="bodyweight"
+            range={range}
+            chart={{
+              series,
+              unit,
+              bands: view.showBands ? bandsOf(phases) : undefined,
+              corridors: showTarget ? corridors : undefined,
+              hideNumbers: hide,
+              yFormat: (v) => v.toFixed(0),
+              smooth: view.smooth,
+            }}
+          />
         </div>
         <div className="stats-row">
           {last && <Stat label="Latest" value={`${toUnit(last.weight_kg, unit).toFixed(1)} ${unit}`} />}
@@ -586,6 +599,7 @@ function BodyweightTab() {
           hideNumbers={hide}
           yFormat={(v) => v.toFixed(0)}
           share={false}
+          onView={setView}
         />
         {showTarget && corridors.length > 0 && (
           <p className="muted small" style={{ marginBottom: 0 }}>

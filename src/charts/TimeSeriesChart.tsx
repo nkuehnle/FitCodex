@@ -88,6 +88,8 @@ export interface TimeSeriesProps {
   share?: boolean;
   /** Touch drags move the readout instead of scrolling (full screen). */
   scrub?: boolean;
+  /** Told the chart's own smoothing and phase choices, so a share button outside it can match. */
+  onView?: (v: { smooth: { on: boolean; span: number }; showBands: boolean }) => void;
 }
 
 /** Raw vs Trend is remembered across charts and restarts. */
@@ -145,6 +147,8 @@ export function TimeSeriesChart(props: TimeSeriesProps) {
   const controls = props.showControls ?? !props.smooth;
   const hasLine = props.series.some((s) => s.style !== "points" && s.points.length > 2);
   const hasData = props.series.some((s) => s.points.length > 0);
+  const { onView } = props;
+  useEffect(() => onView?.({ smooth, showBands }), [onView, smooth.on, smooth.span, showBands]);
 
   const toolbar = (inFull: boolean) => (
     <div className="chart-controls">
@@ -672,14 +676,23 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
               </g>
             );
           }
-          // A marker on every point: hollow when there's room, small solid dots when dense.
+          // A marker on every point: hollow when there's room, small solid dots when dense. Dense
+          // dots sit on a faint line, or they vanish into it.
           const gap = (width - margin.left - margin.right) / Math.max(1, pts.length - 1);
-          const r = Math.max(1.75, Math.min(4, gap / 2.5)) * fs;
+          const r = Math.max(2, Math.min(4, gap / 2.5)) * fs;
           const hollow = r >= 3 * fs;
           return (
             <g key={s.id}>
               {shade(s.points.map((p) => p.v))}
-              <path d={line(pts)!} fill="none" stroke={color} strokeWidth={(hollow ? 2 : 1.25) * fs} strokeLinejoin="round" strokeLinecap="round" />
+              <path
+                d={line(pts)!}
+                fill="none"
+                stroke={color}
+                strokeWidth={(hollow ? 2 : 1) * fs}
+                strokeOpacity={hollow ? 1 : 0.4}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
               {pts.map(([px, py], i) => (
                 <circle key={i} cx={px} cy={py} r={r} fill={hollow ? theme.surface : color} stroke={hollow ? color : "none"} strokeWidth={2 * fs} />
               ))}
