@@ -5,6 +5,7 @@ import { navigate, usePrefs } from "../App";
 import { ExercisePicker } from "../components/ExercisePicker";
 import { Modal } from "../components/Modal";
 import { RestTimer, useRestTimer } from "../components/RestTimer";
+import { clearNudges, useWorkoutNudges } from "../nudges";
 import { paceMode, paceText } from "../cardio";
 import { EQUIPMENT_LABELS, formatClock, formatWeight, parseLocal, setLabel, toUnit } from "../format";
 
@@ -32,6 +33,7 @@ export default function WorkoutPage({ id, mode }: { id: number; mode: "live" | "
   }, [reload]);
 
   const timer = useRestTimer(mode === "live" ? w : null);
+  const nudges = useWorkoutNudges(mode === "live" ? w : null, timer.endsAt, w ? parseLocal(w.started_at_local).getTime() : 0);
   // The set whose completion started the running rest: un-ticking it cancels the rest.
   const restSet = useRef<number | null>(null);
 
@@ -56,9 +58,18 @@ export default function WorkoutPage({ id, mode }: { id: number; mode: "live" | "
       }
       return;
     }
-    if (open > 0 && !(await ask(`${open} set${open > 1 ? "s" : ""} not ticked will be dropped. Finish?`))) return;
+    if (open > 0) {
+      const names = w!.exercises.flatMap((e) => e.sets.flatMap((s, i) => (s.completed ? [] : [`${e.name} · set ${i + 1}`])));
+      const list = names.slice(0, 4).join("\n") + (names.length > 4 ? `\n…and ${names.length - 4} more` : "");
+      const text = `${open} set${open > 1 ? "s aren't" : " isn't"} ticked:\n${list}\n\nDid you do ${open > 1 ? "them" : "it"}? Go back and tick ${open > 1 ? "them" : "it"}, or finish and ${open > 1 ? "they're" : "it's"} dropped.`;
+      if (!(await ask(text, { ok: "Finish anyway", cancel: "Go back" }))) {
+        document.querySelector('.workout-page tr[class^="set-"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+    }
     const r = await api.finishWorkout(w!.id);
     timer.clear();
+    clearNudges();
     api.autoBackup(false).catch(() => {}); // a failure is recorded and shown on the Workouts tab
     api.driveBackup(false).catch(() => {});
     if (r.differs_from_template && (await ask(`Update the “${w!.name}” template with today's exercises, order, sets and rest times?`))) {
@@ -70,6 +81,7 @@ export default function WorkoutPage({ id, mode }: { id: number; mode: "live" | "
   async function discard() {
     if (!(await ask("Cancel this workout? Logged sets will be deleted."))) return;
     timer.clear();
+    clearNudges();
     await api.deleteWorkout(w!.id);
     navigate("/today");
   }
@@ -154,6 +166,7 @@ export default function WorkoutPage({ id, mode }: { id: number; mode: "live" | "
                 grouped={g.superset !== null}
                 onCompleted={(rest, setId, done) => {
                   if (mode !== "live") return;
+                  nudges.ticked();
                   if (!done) {
                     if (restSet.current === setId && timer.endsAt) timer.stop();
                     return;

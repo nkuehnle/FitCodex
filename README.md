@@ -47,6 +47,10 @@ from **Settings → Import, export & backup → Restore…**.
 - **Supersets** are shown with a colored bar and can be dragged as a unit.
 - **Rest timer** with a chime and countdown buzz that work with the screen off or in another app,
   plus an ongoing notification with the rest countdown and the workout clock.
+- **Reminders when a workout goes quiet:** a notification to mark off your next set if it's been
+  a while (allowing for the reps and rest), to finish once every set is ticked, and to finish a
+  little after your usual length for that workout. Finishing with unticked sets asks first.
+- **Workout reminders** on scheduled training days and/or rest days with an optional activity.
 - **Suggested weights** fill the empty boxes. Progression hints (go up, repeat, or deload after
   repeated misses) and a next-time "up / hold / down" note for each exercise.
 - **Templates, routines and starter programs**, with a weekly or custom-length schedule. The
@@ -104,7 +108,7 @@ from **Settings → Import, export & backup → Restore…**.
 ### Body
 
 - **Bodyweight** with a 7-day average, change per week, a goal (cut, maintain or gain) with a
-  weekly target, and weigh-in reminders on the days you choose.
+  weekly target, and weigh-in reminders on the days and times you choose.
 - **Body parts:** log any measurement (waist, neck, arms, …) and chart it. Readings taken within 6
   hours after a workout that trained that muscle are charted as "pumped", separately from rested ones, and once you have a
   few of each, your own pump size fills in estimates for both lines.

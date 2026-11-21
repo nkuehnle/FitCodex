@@ -68,11 +68,12 @@
         </activity-alias>
 
         <receiver android:name=".RestOverReceiver" android:exported="false" />
+        <receiver android:name=".NudgeReceiver" android:exported="false" />
         <service
             android:name=".RestChimeService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-        <receiver android:name=".WeighInReceiver" android:exported="false">
+        <receiver android:name=".DayReminderReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

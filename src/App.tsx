@@ -11,6 +11,7 @@ import SettingsPage from "./pages/SettingsPage";
 import StatsPage from "./pages/StatsPage";
 import CardioPage from "./pages/CardioPage";
 import { loadWeighInPlan, syncWeighInReminder } from "./weighIn";
+import { syncWorkoutReminder } from "./workoutReminder";
 import WorkoutPage from "./pages/WorkoutPage";
 
 export type Theme = "system" | "light" | "dark";
@@ -88,6 +89,7 @@ export default function App() {
     api.getSetting("weight_unit").then((u) => u && setUnitState(u as WeightUnit));
     api.getSetting("theme").then((t) => t && setThemeState(t as Theme));
     loadWeighInPlan().then(syncWeighInReminder);
+    syncWorkoutReminder();
     // Automatic backup, a few seconds after start so it doesn't slow the first screen.
     const t = setTimeout(() => {
       api.autoBackup(false).catch(() => {});

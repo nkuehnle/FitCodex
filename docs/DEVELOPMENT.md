@@ -69,6 +69,14 @@ buzzes at 3, 2 and 1 s left and plays a chime on the media stream (media volume,
 Android mutes audio from a service started in the background; an exact alarm 3 s before the end
 restarts it if it was killed.
 
+**Reminders.** During a live workout `src/nudges.ts` works out two reminders and hands them to
+`RestTimerPlugin.kt` (`nudges`), which sets exact alarms (`NudgeReceiver`): mark off the next set
+at rest end + 2 × (20 s + 4 s a rep) + 90 s (3 min after the last tick once every set is done),
+and finish the workout at the median of the last 10 of that template (`typical_duration_s`) plus
+max(10 min, 20 %). Weigh-in and workout-day reminders are `DayReminder.kt`: a cycle of days (a week
+from a Sunday, or the active schedule's cycle), each with its own time, title and text, re-armed by
+the receiver and after a reboot; a day already done (weighed in, workout started) is skipped.
+
 **Backups.** The app keeps a consistent database snapshot in `backup/` (refreshed within a minute
 of any change) and Android's own Auto Backup copies it to the user's Google account, restoring it
 when the app is installed on a new phone. No sign-in or server is involved. Restore requires the

@@ -5,6 +5,7 @@ import { ReportCard } from "../components/ReportCard";
 import { WearablesCard } from "../components/WearablesCard";
 import { IS_ANDROID } from "../platform";
 import { loadWeighInPlan, saveWeighInPlan, type WeighInPlan } from "../weighIn";
+import { loadWorkoutReminderPlan, saveWorkoutReminderPlan, type WorkoutReminderPlan } from "../workoutReminder";
 
 const WEEK: [number, string][] = [
   [1, "Mon"],
@@ -16,7 +17,7 @@ const WEEK: [number, string][] = [
   [0, "Sun"],
 ];
 
-/** Weigh-in days and the morning reminder for them. */
+/** Weigh-in days and the reminder time for each. */
 function WeighInDays() {
   const [plan, setPlan] = useState<WeighInPlan | null>(null);
   useEffect(() => {
@@ -27,34 +28,60 @@ function WeighInDays() {
     setPlan(p);
     saveWeighInPlan(p);
   };
+  const setTime = (d: number, t: string | null) => save({ times: plan.times.map((x, i) => (i === d ? t : x)) });
+  // A newly picked day starts at the time of the last day already picked.
+  const usual = plan.times.filter((t) => t).pop() ?? "09:00";
   return (
     <section className="card">
       <h2 className="section-title">Weigh-in days</h2>
       <div className="segmented week-picker">
         {WEEK.map(([d, l]) => (
-          <button
-            key={d}
-            className={plan.days.includes(d) ? "active" : ""}
-            onClick={() => save({ ...plan, days: plan.days.includes(d) ? plan.days.filter((x) => x !== d) : [...plan.days, d].sort() })}
-          >
+          <button key={d} className={plan.times[d] ? "active" : ""} onClick={() => setTime(d, plan.times[d] ? null : usual)}>
             {l}
           </button>
         ))}
       </div>
-      <label className="row small">
-        Remind me at
-        <input
-          className="input"
-          type="time"
-          value={plan.time}
-          onChange={(e) => e.target.value && save({ ...plan, time: e.target.value })}
-        />
-      </label>
+      {WEEK.filter(([d]) => plan.times[d]).map(([d, l]) => (
+        <label key={d} className="row small">
+          {l}: remind me at
+          <input className="input" type="time" value={plan.times[d]!} onChange={(e) => e.target.value && setTime(d, e.target.value)} />
+        </label>
+      ))}
       <p className="muted small">
         {IS_ANDROID
-          ? "A notification reminds you on these mornings, unless you've already logged a weight that day."
+          ? "A notification reminds you on these days, unless you've already logged a weight that day."
           : "The Workouts tab reminds you on these days. On Android you also get a notification."}
       </p>
+    </section>
+  );
+}
+
+/** Notifications on scheduled days: training days and rest days with an optional activity. */
+function WorkoutReminders() {
+  const [plan, setPlan] = useState<WorkoutReminderPlan | null>(null);
+  useEffect(() => {
+    loadWorkoutReminderPlan().then(setPlan);
+  }, []);
+  if (!plan || !IS_ANDROID) return null;
+  const save = (p: WorkoutReminderPlan) => {
+    setPlan(p);
+    saveWorkoutReminderPlan(p);
+  };
+  const row = (key: keyof WorkoutReminderPlan, label: string, fallback: string) => (
+    <label className="row small">
+      <input type="checkbox" checked={!!plan[key]} onChange={(e) => save({ ...plan, [key]: e.target.checked ? fallback : null })} />
+      {label}
+      {plan[key] && (
+        <input className="input" type="time" value={plan[key]!} onChange={(e) => e.target.value && save({ ...plan, [key]: e.target.value })} />
+      )}
+    </label>
+  );
+  return (
+    <section className="card">
+      <h2 className="section-title">Workout reminders</h2>
+      {row("planned", "Training days", "17:00")}
+      {row("optional", "Rest days with an optional activity", "12:00")}
+      <p className="muted small">From your schedule. No reminder on a day you've already started a workout.</p>
     </section>
   );
 }
@@ -103,6 +130,7 @@ export default function SettingsPage() {
         </div>
       </section>
       <WeighInDays />
+      <WorkoutReminders />
       <WearablesCard />
       <section className="card">
         <h2 className="section-title">Weight unit</h2>

@@ -788,7 +788,10 @@ export const api = {
   getSetting: (key: string) => invoke<string | null>("get_setting", { key }),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   /** Android only (no-op elsewhere): weigh-in reminder on weekdays 0 = Sunday … 6 = Saturday. */
-  weighInReminder: (days: number[], hour: number, minute: number) => invoke<void>("weigh_in_reminder", { days, hour, minute }),
+  /** Android daily reminder repeating every `minutes.length` days from `from`: day i at
+   *  `minutes[i]` past midnight (-1 for none), with that day's title and text. */
+  dayReminder: (kind: "weigh_in" | "workout", from: string, minutes: number[], titles: string[], texts: string[]) =>
+    invoke<void>("day_reminder", { kind, from, minutes, titles, texts }),
   cardioSessions: () => invoke<CardioSession[]>("cardio_sessions"),
   logCardio: (entry: CardioEntry) => invoke<number>("log_cardio", { entry }),
   /** Android only: Health Connect (Garmin Connect, Fitbit, Oura, … write there). */
@@ -829,6 +832,8 @@ export const api = {
     invoke<void>("update_workout_exercise", { workoutExerciseId, update }),
   setRestTimer: (workoutId: number, endsAt: string | null, totalS: number | null) =>
     invoke<void>("set_rest_timer", { workoutId, endsAt, totalS }),
+  /** Usual length in seconds of workouts like this one (null without enough history). */
+  typicalDuration: (workoutId: number) => invoke<number | null>("typical_duration", { workoutId }),
   finishWorkout: (workoutId: number) => invoke<{ differs_from_template: boolean }>("finish_workout", { workoutId }),
   previousForWorkout: (workoutId: number) => invoke<Previous[]>("previous_for_workout", { workoutId }),
   updateTemplateFromWorkout: (workoutId: number) => invoke<void>("update_template_from_workout", { workoutId }),

@@ -563,6 +563,31 @@ impl Db {
         Ok(())
     }
 
+    /// Usual length (seconds) of a workout like `workout_id`: the median of the last 10 finished
+    /// workouts from the same template, or of the last 10 of any kind when it has fewer than 3.
+    /// The median ignores the odd workout that was left open for hours. None without history.
+    pub fn typical_duration_s(&self, workout_id: i64) -> Result<Option<i64>> {
+        let template: Option<i64> = self.conn().query_row("SELECT template_id FROM workout WHERE id = ?1", [workout_id], |r| r.get(0))?;
+        let recent = |same_template: bool| -> Result<Vec<i64>> {
+            let mut stmt = self.conn().prepare_cached(
+                "SELECT duration_s FROM workout
+                 WHERE finished = 1 AND duration_s > 0 AND id != ?1 AND (?2 = 0 OR template_id IS ?3)
+                 ORDER BY started_at_local DESC LIMIT 10",
+            )?;
+            let v = stmt.query_map(params![workout_id, same_template, template], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            Ok(v)
+        };
+        let mut d = if template.is_some() { recent(true)? } else { Vec::new() };
+        if d.len() < 3 {
+            d = recent(false)?;
+        }
+        if d.len() < 3 {
+            return Ok(None);
+        }
+        d.sort_unstable();
+        Ok(Some(d[d.len() / 2]))
+    }
+
     pub fn delete_workout(&mut self, workout_id: i64) -> Result<()> {
         self.conn().execute("DELETE FROM workout WHERE id = ?1", [workout_id])?;
         self.rebuild_prs()?;
@@ -754,6 +779,29 @@ mod progression_tests {
         let prev = db.previous_for_workout(4).unwrap();
         assert_eq!(prev[0].sets[0].weight_kg, Some(100.0));
         assert_eq!(prev[1].sets[0].weight_kg, Some(60.0));
+    }
+
+    #[test]
+    fn typical_duration_is_the_median_of_the_same_template() {
+        let db = Db::open_in_memory().unwrap();
+        db.conn().execute("INSERT INTO template (id, name) VALUES (1, 'A'), (2, 'B')", []).unwrap();
+        let add = |id: i64, template: i64, dur: Option<i64>| {
+            db.conn()
+                .execute(
+                    "INSERT INTO workout (id, name, started_at_local, template_id, duration_s, finished) VALUES (?1, 'W', ?2, ?3, ?4, ?5)",
+                    params![id, format!("2026-01-{id:02} 10:00:00"), template, dur, dur.is_some()],
+                )
+                .unwrap();
+        };
+        add(1, 1, Some(3600));
+        add(2, 1, Some(66000)); // left open overnight
+        add(3, 2, Some(1500));
+        add(4, 1, Some(4000));
+        add(5, 1, None); // in progress
+        assert_eq!(db.typical_duration_s(5).unwrap(), Some(4000));
+        // Too little history for template 2: any workout.
+        add(6, 2, None);
+        assert_eq!(db.typical_duration_s(6).unwrap(), Some(4000));
     }
 
     #[test]

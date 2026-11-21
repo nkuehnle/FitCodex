@@ -20,6 +20,7 @@ import { RoutineReviewTab } from "../components/RoutineReview";
 import { TargetRange } from "../charts/TargetRange";
 import { formatClock, formatDate } from "../format";
 import { saveOrShareText } from "../platform";
+import { syncWorkoutReminder } from "../workoutReminder";
 
 type Tab = "templates" | "schedule" | "review" | "phases" | "targets";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -431,6 +432,7 @@ function RoutineSharing({ name, canExport, onImported }: { name: string; canExpo
               onClick={() =>
                 run(async () => {
                   await api.importRoutine(pending.text, activate, today());
+                  syncWorkoutReminder();
                   const done = `${pending.preview.name} added.`;
                   setPending(null);
                   onImported();
@@ -485,6 +487,7 @@ function ScheduleTab() {
 
   async function save() {
     await api.saveSchedule({ ...s!, cycle_length: len, days, optional });
+    syncWorkoutReminder();
     setMsg("Schedule saved.");
   }
 
@@ -612,6 +615,7 @@ function ScheduleTab() {
               onClick={async () => {
                 if (!(await ask(`Add ${p.name}? It creates its templates and becomes your active schedule.`))) return;
                 await api.installProgram(p.id, today());
+                syncWorkoutReminder();
                 load();
                 setMsg(`${p.name} added. Edit its templates any time.`);
               }}

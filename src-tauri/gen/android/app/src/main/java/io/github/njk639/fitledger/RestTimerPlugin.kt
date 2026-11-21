@@ -26,7 +26,9 @@ import app.tauri.plugin.Plugin
  *   tapping it opens the app;
  * - [RestChimeService] for the length of the rest: it buzzes on each of the last 3 seconds and
  *   plays a chime on the media stream at 0, even with the screen off or in another app; an exact
- *   alarm 3 s before the end restarts it if it was killed.
+ *   alarm 3 s before the end restarts it if it was killed;
+ * - reminders when a workout goes quiet: mark off your next set (or finish once every set is
+ *   ticked), and finish the workout a while after it usually ends.
  */
 object RestNotifications {
     const val CHANNEL_STATUS = "workout_status"
@@ -36,7 +38,11 @@ object RestNotifications {
     private val OLD_CHANNELS = listOf("rest_over", "rest_over_v2", "rest_over_v3")
     const val ID_STATUS = 1001
     const val ID_ALERT = 1002
+    const val CHANNEL_NUDGE = "workout_nudge"
+    const val ID_NUDGE_SET = 1005
+    const val ID_NUDGE_FINISH = 1006
     const val ACTION_REST_OVER = "io.github.njk639.fitledger.REST_OVER"
+    const val ACTION_NUDGE = "io.github.njk639.fitledger.NUDGE"
     private const val PREFS = "rest_timer"
 
     fun ensureChannels(ctx: Context) {
@@ -54,6 +60,11 @@ object RestNotifications {
                 description = "Shows when it's time for your next set (the chime follows media volume)"
                 enableVibration(false)
                 setSound(null, null)
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_NUDGE, "Workout reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Reminds you to mark off your next set, or to finish a workout you've left open"
             },
         )
     }
@@ -153,9 +164,49 @@ object RestNotifications {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("restEndsAt").apply()
     }
 
+    private fun nudgeIntent(ctx: Context, id: Int, title: String, text: String): PendingIntent {
+        val i = Intent(ctx, NudgeReceiver::class.java).setAction(ACTION_NUDGE).putExtra("id", id).putExtra("title", title).putExtra("text", text)
+        return PendingIntent.getBroadcast(ctx, id, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    /** (Re)arms a reminder; [atMs] in the past (or 0) only cancels the pending one. A new reminder
+     *  also takes down the shown one, which is out of date by then. */
+    fun scheduleNudge(ctx: Context, id: Int, atMs: Long, title: String, text: String) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        am.cancel(nudgeIntent(ctx, id, "", ""))
+        if (atMs <= System.currentTimeMillis()) return
+        NotificationManagerCompat.from(ctx).cancel(id)
+        val pi = nudgeIntent(ctx, id, title, text)
+        if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+        }
+    }
+
+    fun showNudge(ctx: Context, id: Int, title: String, text: String) {
+        ensureChannels(ctx)
+        if (!canPost(ctx)) return
+        val n = NotificationCompat.Builder(ctx, CHANNEL_NUDGE)
+            .setSmallIcon(ctx.applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx))
+            .build()
+        NotificationManagerCompat.from(ctx).notify(id, n)
+    }
+
     fun clearAll(ctx: Context) {
         cancelRestOver(ctx, removeStatus = true)
         NotificationManagerCompat.from(ctx).cancel(ID_STATUS)
+        for (id in listOf(ID_NUDGE_SET, ID_NUDGE_FINISH)) {
+            scheduleNudge(ctx, id, 0, "", "")
+            NotificationManagerCompat.from(ctx).cancel(id)
+        }
     }
 }
 
@@ -171,6 +222,29 @@ class RestOverReceiver : BroadcastReceiver() {
             intent.getStringExtra("title") ?: "Workout in progress",
         )
     }
+}
+
+/** Shows a workout reminder when its alarm goes off, even if the app process is gone. */
+class NudgeReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        if (intent.action != RestNotifications.ACTION_NUDGE) return
+        RestNotifications.showNudge(
+            ctx,
+            intent.getIntExtra("id", RestNotifications.ID_NUDGE_SET),
+            intent.getStringExtra("title") ?: "Workout in progress",
+            intent.getStringExtra("text") ?: "",
+        )
+    }
+}
+
+@InvokeArg
+class NudgeArgs {
+    var setAt: Long = 0
+    var setTitle: String = ""
+    var setText: String = ""
+    var finishAt: Long = 0
+    var finishTitle: String = ""
+    var finishText: String = ""
 }
 
 @InvokeArg
@@ -197,10 +271,12 @@ class RestArgs {
 }
 
 @InvokeArg
-class ReminderArgs {
-    var days: IntArray = IntArray(0)
-    var hour: Int = 9
-    var minute: Int = 0
+class DayReminderArgs {
+    var kind: String = ""
+    var from: String = ""
+    var minutes: IntArray = IntArray(0)
+    var titles: Array<String> = arrayOf()
+    var texts: Array<String> = arrayOf()
 }
 
 @InvokeArg
@@ -210,7 +286,8 @@ class PruneArgs {
 }
 
 @InvokeArg
-class DateArgs {
+class DoneArgs {
+    var kind: String = ""
     var date: String = ""
 }
 
@@ -218,7 +295,7 @@ class DateArgs {
 class RestTimerPlugin(private val activity: Activity) : Plugin(activity) {
     override fun load(webView: android.webkit.WebView) {
         RestNotifications.ensureChannels(activity)
-        WeighInReminder.schedule(activity)
+        DayReminder.scheduleAll(activity)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -258,17 +335,28 @@ class RestTimerPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
-    /** Weigh-in reminder days (0 = Sunday) and time; no days turns it off. */
+    /** Mark-off-your-next-set and finish-your-workout reminders; a time of 0 means none. */
     @Command
-    fun weighInReminder(invoke: Invoke) {
-        val a = invoke.parseArgs(ReminderArgs::class.java)
-        WeighInReminder.configure(activity, a.days.toList(), a.hour, a.minute)
+    fun nudges(invoke: Invoke) {
+        val a = invoke.parseArgs(NudgeArgs::class.java)
+        RestNotifications.scheduleNudge(activity, RestNotifications.ID_NUDGE_SET, a.setAt, a.setTitle, a.setText)
+        RestNotifications.scheduleNudge(activity, RestNotifications.ID_NUDGE_FINISH, a.finishAt, a.finishTitle, a.finishText)
         invoke.resolve()
     }
 
+    /** Weigh-in or workout-day reminder plan (see [DayReminder]); all times -1 turns it off. */
     @Command
-    fun weighedIn(invoke: Invoke) {
-        WeighInReminder.weighedIn(activity, invoke.parseArgs(DateArgs::class.java).date)
+    fun dayReminder(invoke: Invoke) {
+        val a = invoke.parseArgs(DayReminderArgs::class.java)
+        DayReminder.configure(activity, a.kind, a.from, a.minutes, a.titles, a.texts)
+        invoke.resolve()
+    }
+
+    /** Weighed in / started a workout on `date`: no reminder needed that day. */
+    @Command
+    fun dayReminderDone(invoke: Invoke) {
+        val a = invoke.parseArgs(DoneArgs::class.java)
+        DayReminder.done(activity, a.kind, a.date)
         invoke.resolve()
     }
 

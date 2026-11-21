@@ -20,7 +20,7 @@ use fitledger_core::stats::{DiscomfortPoint, ExerciseStats, LastTrained, MuscleS
 use fitledger_core::strong::{self, ImportOptions};
 use fitledger_core::templates::{CreatedTemplate, Template};
 use fitledger_core::units::{DistanceUnit, WeightUnit};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
 struct AppState(Mutex<Db>);
@@ -257,9 +257,12 @@ fn active_workout(state: State<AppState>) -> CmdResult<Option<i64>> {
 }
 
 #[tauri::command]
-fn start_workout(state: State<AppState>, from: StartFrom) -> CmdResult<i64> {
+fn start_workout(app: tauri::AppHandle, state: State<AppState>, from: StartFrom) -> CmdResult<i64> {
     let (t, off) = now();
-    with(&state, |db| db.start_workout(&from, t, Some(off)))
+    let id = with(&state, |db| db.start_workout(&from, t, Some(off)))?;
+    // Lets the Android workout reminder skip a day you've already trained.
+    native_call(&app, "dayReminderDone", serde_json::json!({ "kind": "workout", "date": t.date().to_string() }))?;
+    Ok(id)
 }
 
 #[tauri::command]
@@ -315,6 +318,11 @@ fn update_workout_exercise(state: State<AppState>, workout_exercise_id: i64, upd
 #[tauri::command]
 fn set_rest_timer(state: State<AppState>, workout_id: i64, ends_at: Option<String>, total_s: Option<i64>) -> CmdResult<()> {
     with(&state, |db| db.set_rest_timer(workout_id, ends_at.as_deref(), total_s))
+}
+
+#[tauri::command]
+fn typical_duration(state: State<AppState>, workout_id: i64) -> CmdResult<Option<i64>> {
+    with(&state, |db| db.typical_duration_s(workout_id))
 }
 
 #[derive(Serialize)]
@@ -628,7 +636,7 @@ fn add_weigh_in(app: tauri::AppHandle, state: State<AppState>, at: String, weigh
     let t = strong_time(&at)?;
     let id = with(&state, |db| db.add_weigh_in(t, weight_kg))?;
     // Lets the Android weigh-in reminder skip a day that's already logged.
-    native_call(&app, "weighedIn", serde_json::json!({ "date": t.date().to_string() }))?;
+    native_call(&app, "dayReminderDone", serde_json::json!({ "kind": "weigh_in", "date": t.date().to_string() }))?;
     Ok(id)
 }
 
@@ -1346,10 +1354,33 @@ fn rest_android_clear(app: tauri::AppHandle) -> CmdResult<()> {
     native_call(&app, "clear", serde_json::json!({}))
 }
 
-/// Android weigh-in reminder: weekdays (0 = Sunday) at hour:minute. No days turns it off.
+/// In-workout reminders (Android): mark off the next set / finish the workout. A time of 0 (or
+/// one already past) means none.
 #[tauri::command]
-fn weigh_in_reminder(app: tauri::AppHandle, days: Vec<u8>, hour: u8, minute: u8) -> CmdResult<()> {
-    native_call(&app, "weighInReminder", serde_json::json!({ "days": days, "hour": hour, "minute": minute }))
+fn rest_android_nudges(app: tauri::AppHandle, set: Nudge, finish: Nudge) -> CmdResult<()> {
+    native_call(
+        &app,
+        "nudges",
+        serde_json::json!({
+            "setAt": set.at_ms, "setTitle": set.title, "setText": set.text,
+            "finishAt": finish.at_ms, "finishTitle": finish.title, "finishText": finish.text,
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Nudge {
+    at_ms: i64,
+    title: String,
+    text: String,
+}
+
+/// Android daily reminder (`kind` "weigh_in" or "workout") repeating every `minutes.len()` days
+/// from `from` (YYYY-MM-DD): day i of the cycle at `minutes[i]` past midnight, -1 for none.
+#[tauri::command]
+fn day_reminder(app: tauri::AppHandle, kind: String, from: String, minutes: Vec<i32>, titles: Vec<String>, texts: Vec<String>) -> CmdResult<()> {
+    native_call(&app, "dayReminder", serde_json::json!({ "kind": kind, "from": from, "minutes": minutes, "titles": titles, "texts": texts }))
 }
 
 // ---- Settings ---------------------------------------------------------------------------------------
@@ -1517,7 +1548,7 @@ pub fn run() {
             preview_inbody_csv, import_inbody_csv, diet_days, save_diet_day, energy_balance,
             body_parts, measurements, add_measurement, delete_measurement,
             export_file, backup_to, inspect_backup, restore_from, db_info, save_base64, copy_png,
-            rest_android_status, rest_android_rest, rest_android_clear, weigh_in_reminder, auto_backup, drive_connect, drive_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
+            rest_android_status, rest_android_rest, rest_android_clear, rest_android_nudges, day_reminder, typical_duration, auto_backup, drive_connect, drive_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
             health_connect_sync, import_fit, day_health, fatigue,
             share_export, share_backup, share_png, save_png_to_photos, read_inbody_image, stage_backup,
             counts, get_setting, set_setting,

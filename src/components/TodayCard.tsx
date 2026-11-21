@@ -5,7 +5,7 @@ import { usePrefs } from "../App";
 import { today } from "../charts/RangePicker";
 import { nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
-import { loadWeighInPlan, type WeighInPlan } from "../weighIn";
+import { isWeighDay, loadWeighInPlan, type WeighInPlan } from "../weighIn";
 
 const KG_PER_LB = 0.45359237;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -39,7 +39,7 @@ export function TodayCard() {
 
   const last = rows[rows.length - 1];
   const loggedToday = last && last.at.slice(0, 10) === today();
-  const weighDay = plan?.days.includes(new Date().getDay()) ?? false;
+  const weighDay = isWeighDay(plan, new Date().getDay());
   const s = goalStatus(goal, rows, energy);
   const u = (kg: number) => toUnit(kg, unit);
 
