@@ -72,7 +72,7 @@ impl Db {
         let p = Period { from: today - Duration::days(weeks * 7 - 1), to: today, weeks, unit };
         let formula = self.formula()?;
         let mut out = format!(
-            "# FitLedger training report\n\n\
+            "# FitCodex training report\n\n\
              Period: {} to {} ({weeks} weeks). Weights are in {}. Estimated 1RM uses the {} formula.\n\n\
              Please review this training data. Tell me what's working, what's stalling and what to change over the next few weeks. \
              Say so if the numbers aren't enough to judge something.\n",

@@ -460,7 +460,7 @@ export function BluetoothWeighIn({ profile, onClose, onSaved }: { profile: Scale
     try {
       const log = await api.scaleBleLog();
       if (!log) return setError("Nothing captured yet.");
-      await saveOrShareText(`fitledger-${profile.id}-capture.txt`, "text/plain", log);
+      await saveOrShareText(`fitcodex-${profile.id}-capture.txt`, "text/plain", log);
     } catch (e) {
       setError(String(e));
     }
@@ -553,7 +553,7 @@ export function BluetoothWeighIn({ profile, onClose, onSaved }: { profile: Scale
         <ol>
           <li>
             Set the scale up once in the {profile.name} app, with you as its first user and the same birth date, height and sex as in
-            FitLedger.
+            FitCodex.
           </li>
           <li>
             Close the {profile.name} app; if the scale isn't found, force stop it (long-press its icon › App info › Force stop). No
@@ -622,7 +622,7 @@ export function ScaleProfilesModal({
       <p className="muted small">
         A profile says what a body-composition device reports: the labels its app prints (for reading screenshots), the Health Connect
         app that writes its data, and how to talk to it over Bluetooth. Edit a copy to tune one; a custom profile with the same id
-        replaces the built-in one. Format: data/scales/README.md in the FitLedger repository.
+        replaces the built-in one. Format: data/scales/README.md in the FitCodex repository.
       </p>
       {profiles.map((p) => (
         <details key={p.id} className="card">

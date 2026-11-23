@@ -1,4 +1,4 @@
-# FitLedger
+# FitCodex
 
 **The fitness app you control.** Track lifting, cardio, bodyweight and body composition on your
 phone (Android) and desktop (Linux, Windows).
@@ -24,15 +24,15 @@ phone (Android) and desktop (Linux, Windows).
 ## Install
 
 **Android:** download `fitledger-<version>.apk` from the latest
-[release](https://github.com/nkuehnle/FitLedger/releases), open it on your phone, and allow
+[release](https://github.com/nkuehnle/FitCodex/releases), open it on your phone, and allow
 installing from your browser or Files app when Android asks. New versions install over the old one,
 and your data stays. (The APK is for 64-bit ARM phones, which is nearly every phone made since about
 2017.)
 
 **Coming from Strong:** export your data in Strong (Settings → Export data), then import the CSV in
-FitLedger under **Settings → Import, export & backup**. Body measurements from Strong import too.
+FitCodex under **Settings → Import, export & backup**. Body measurements from Strong import too.
 
-**Coming from Liftbook:** FitLedger installs as a new app. Restore your latest `.liftbook` backup
+**Coming from Liftbook:** FitCodex installs as a new app. Restore your latest `.liftbook` backup
 from **Settings → Import, export & backup → Restore…**.
 
 **Desktop:** there are no desktop downloads yet; build it from source (see
@@ -126,11 +126,11 @@ calories).
   weigh-in list for the full report and a chart of any of the scale's values. Under Settings ›
   Scale, pick the scale for a one-tap **⚖ Weigh in** on Workouts and at the top of Measure: it finds
   the scale and connects by itself, and remembers it after the first time. Set the scale up once in
-  its own app (you as its first user), then close that app while weighing in with FitLedger; no
+  its own app (you as its first user), then close that app while weighing in with FitCodex; no
   Android Bluetooth pairing is needed. New scales usually need only a
   [scale profile](data/scales/README.md), not code.
 - **Shared scales:** each person picks their own user number on the scale in their own copy of
-  FitLedger, and FitLedger only listens to the scale while its weigh-in window is open. Anything
+  FitCodex, and FitCodex only listens to the scale while its weigh-in window is open. Anything
   that might be someone else's waits for **That's me / Not me**: weigh-ins the scale kept while no
   phone was connected, and Health Connect weigh-ins far from your recent weight.
 - **How you compare:** percentiles against people of your sex and age for body fat, fat mass and
@@ -159,7 +159,7 @@ calories).
 
 ### Watches and health apps
 
-- **Health Connect** sync on Android: FitLedger reads what your watch or ring app shares with
+- **Health Connect** sync on Android: FitCodex reads what your watch or ring app shares with
   Android's Health Connect (Garmin Connect, Fitbit, Oura and others can). That covers weight,
   workouts, heart rate, sleep, resting heart rate, HRV and steps, as far as each app shares them.
   There are no direct connections to Garmin, Fitbit or Oura accounts. It syncs when the app opens,
@@ -173,7 +173,7 @@ calories).
 - **Offline first.** The only network use is a one-time 12 MB download of the InBody sheet reader
   the first time you read a sheet.
 - **Backups:** manual backups, a weekly (newest 4 kept) or daily (newest 7 kept) automatic backup
-  to `Download/FitLedger`, and Android's own account backup, which restores your data on a new
+  to `Download/FitCodex`, and Android's own account backup, which restores your data on a new
   phone. On desktop you can choose the folder, such as one that Dropbox or Syncthing watches.
   Automatic backups run when you open the app or finish a workout, and a failed one shows a warning.
 - **Safe restores:** a safety copy of your current data is saved before any restore.

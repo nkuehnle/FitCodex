@@ -1,5 +1,5 @@
 //! Body-composition devices: scale profiles (what a device reports and how to reach it) and the
-//! Bluetooth protocols FitLedger speaks.
+//! Bluetooth protocols FitCodex speaks.
 //!
 //! A profile is plain JSON (`data/scales/*.json` are bundled; users can add or override their own),
 //! so supporting another app's screenshots, CSV headers or Health Connect package is configuration,

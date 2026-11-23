@@ -881,7 +881,7 @@ export const api = {
   importFit: (data: string) => invoke<WearableSummary>("import_fit", { data }),
   dayHealth: () => invoke<DayHealth[]>("day_health"),
   fatigue: () => invoke<FatigueReport>("fatigue", { today: localToday() }),
-  /** Automatic backup to Download/FitLedger (Android) if due, or now with `force`; returns where it went. */
+  /** Automatic backup to Download/FitCodex (Android) if due, or now with `force`; returns where it went. */
   autoBackup: (force: boolean) => invoke<string | null>("auto_backup", { force }),
   /** Google Drive (Android, optional): ask for access; upload if on and due. */
   driveConnect: () => invoke<void>("drive_connect"),
@@ -1057,7 +1057,7 @@ export const api = {
   dbInfo: () => invoke<BackupInfo>("db_info"),
   saveBase64: (path: string, data: string) => invoke<void>("save_base64", { path, data }),
   copyPng: (data: string) => invoke<void>("copy_png", { data }),
-  /** Android: opens the share sheet, or with toDownloads saves to Downloads/FitLedger and returns where. */
+  /** Android: opens the share sheet, or with toDownloads saves to Downloads/FitCodex and returns where. */
   shareExport: (kind: "strong" | "bodyweight" | "inbody" | "diet" | "measurements" | "json", toDownloads: boolean) =>
     invoke<string | null>("share_export", { kind, toDownloads }),
   shareBackup: (toDownloads: boolean) => invoke<[BackupInfo, string | null]>("share_backup", { toDownloads }),

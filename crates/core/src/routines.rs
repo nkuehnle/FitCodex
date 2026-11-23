@@ -19,7 +19,7 @@ pub const ROUTINE_VERSION: u32 = 1;
 const MAX_ROUTINE_BYTES: usize = 1_000_000;
 const MAX_CYCLE_DAYS: i64 = 366;
 /// Written into every exported file, so the file documents its own format.
-const FORMAT_GUIDE: &str = "This is a FitLedger workout routine: one JSON document, imported with Import routine or Paste routine in FitLedger. \
+const FORMAT_GUIDE: &str = "This is a FitCodex workout routine: one JSON document, imported with Import routine or Paste routine in FitCodex. \
 format and version stay unchanged. format_guide, exercise_ids and muscle_ids are reference only and can be left out. \
 templates maps each workout name to its exercises in order. Every slug comes from exercise_ids or the exercises list in resources.json, plus any in custom_exercises. A \
 custom exercise is for when nothing in those lists fits: it has a slug starting with custom-, a name, and kind (one of weight_reps, \
@@ -115,14 +115,14 @@ pub fn parse_routine(text: &str) -> Result<Routine> {
     }
     let json = match (text.find('{'), text.rfind('}')) {
         (Some(a), Some(b)) if a < b => &text[a..=b],
-        _ => return Err(Error::Format("not a FitLedger routine".into())),
+        _ => return Err(Error::Format("not a FitCodex routine".into())),
     };
-    let value: serde_json::Value = serde_json::from_str(json).map_err(|_| Error::Format("not a FitLedger routine".into()))?;
+    let value: serde_json::Value = serde_json::from_str(json).map_err(|_| Error::Format("not a FitCodex routine".into()))?;
     if value.get("format").and_then(|f| f.as_str()) != Some(ROUTINE_FORMAT) {
-        return Err(Error::Format("not a FitLedger routine".into()));
+        return Err(Error::Format("not a FitCodex routine".into()));
     }
     if value.get("version").and_then(|v| v.as_u64()).is_none_or(|v| v > ROUTINE_VERSION as u64) {
-        return Err(Error::Format("this routine was made by a newer version of FitLedger; update the app first".into()));
+        return Err(Error::Format("this routine was made by a newer version of FitCodex; update the app first".into()));
     }
     let r: Routine = serde_json::from_value(value).map_err(|e| Error::Format(format!("this routine is damaged: {e}")))?;
     if r.name.trim().is_empty() || r.templates.is_empty() {

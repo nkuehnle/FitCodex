@@ -213,7 +213,7 @@ export default function SettingsPage() {
       </section>
       <section className="card">
         <h2 className="section-title">About</h2>
-        <p className="small">FitLedger keeps everything on this device. No account, no server.</p>
+        <p className="small">FitCodex keeps everything on this device. No account, no server.</p>
         <p className="small muted">
           The exercise library includes exercises from{" "}
           <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">

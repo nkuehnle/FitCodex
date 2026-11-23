@@ -36,7 +36,7 @@ class DriveUploadArgs {
 private class Unauthorized : Exception("Google Drive rejected the sign-in")
 
 /**
- * Optional backups to the user's Google Drive, in a visible "FitLedger" folder. Uses the
+ * Optional backups to the user's Google Drive, in a visible "FitCodex" folder. Uses the
  * drive.file scope, so the app only ever sees files it created. Nothing here runs unless the user
  * turns Drive backup on.
  */
@@ -142,13 +142,13 @@ class DrivePlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** The app's "FitLedger" folder (wherever the user has moved it), created on first use. */
+    /** The app's "FitCodex" folder (wherever the user has moved it), created on first use. */
     private fun folder(token: String): String {
         val type = "application/vnd.google-apps.folder"
-        val q = "name = 'FitLedger' and mimeType = '$type' and trashed = false"
+        val q = "name = 'FitCodex' and mimeType = '$type' and trashed = false"
         val found = JSONObject(read(open("GET", "https://www.googleapis.com/drive/v3/files?fields=files(id)&q=" + enc(q), token))).getJSONArray("files")
         if (found.length() > 0) return found.getJSONObject(0).getString("id")
-        val body = JSONObject().put("name", "FitLedger").put("mimeType", type).toString().toByteArray()
+        val body = JSONObject().put("name", "FitCodex").put("mimeType", type).toString().toByteArray()
         val c = open("POST", "https://www.googleapis.com/drive/v3/files?fields=id", token)
         c.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
         c.setFixedLengthStreamingMode(body.size)

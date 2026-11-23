@@ -21,7 +21,7 @@ pub struct LibraryExercise {
     /// Muscles that only grip or hold still: half a secondary.
     #[serde(default)]
     pub minor: Vec<String>,
-    /// "liftbook" (curated, the id predates the FitLedger name) or "free-exercise-db" (muscles auto-mapped).
+    /// "liftbook" (curated, the id predates the FitCodex name) or "free-exercise-db" (muscles auto-mapped).
     pub source: String,
 }
 

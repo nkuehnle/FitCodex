@@ -136,7 +136,7 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
 
   async function saveFile() {
     if (!png) return;
-    const path = await save({ defaultPath: `fitledger-${slug(title)}-${today()}.png`, filters: [{ name: "PNG", extensions: ["png"] }] });
+    const path = await save({ defaultPath: `fitcodex-${slug(title)}-${today()}.png`, filters: [{ name: "PNG", extensions: ["png"] }] });
     if (!path) return;
     await api.saveBase64(path, png.split(",")[1]);
     setMsg(`Saved ${path}`);
@@ -154,14 +154,14 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
     if (!png) return;
     setMsg(null);
     await api
-      .savePngToPhotos(`fitledger-${slug(title)}-${today()}`, png.split(",")[1])
-      .then(() => setMsg("Saved to Photos (Pictures/FitLedger)."))
+      .savePngToPhotos(`fitcodex-${slug(title)}-${today()}`, png.split(",")[1])
+      .then(() => setMsg("Saved to Photos (Pictures/FitCodex)."))
       .catch((e) => setMsg(String(e)));
   }
   async function shareSheet() {
     if (!png) return;
     if (IS_ANDROID) {
-      await api.sharePng(`fitledger-${slug(title)}`, png.split(",")[1]).catch((e) => setMsg(String(e)));
+      await api.sharePng(`fitcodex-${slug(title)}`, png.split(",")[1]).catch((e) => setMsg(String(e)));
       return;
     }
     const file = new File([base64ToBytes(png.split(",")[1])], `${slug(title)}.png`, { type: "image/png" });
@@ -279,7 +279,7 @@ function slug(s: string) {
     s
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "fitledger"
+      .replace(/^-|-$/g, "") || "fitcodex"
   );
 }
 
@@ -351,7 +351,7 @@ function composeSvg(o: {
     vy += h + 16;
   }
   parts.push(
-    `<text x="${W - PAD}" y="${H - PAD / 2}" font-size="26" fill="${theme.muted}" text-anchor="end" font-family="${font}">FitLedger</text>`,
+    `<text x="${W - PAD}" y="${H - PAD / 2}" font-size="26" fill="${theme.muted}" text-anchor="end" font-family="${font}">FitCodex</text>`,
   );
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join("")}</svg>`;
 }

@@ -1,4 +1,4 @@
-# FitLedger curated exercise library.
+# FitCodex curated exercise library.
 # One exercise per line: name | equipment | pattern | kind | primary muscles | secondary muscles | minor muscles | aliases
 # Sets per muscle: primary 1, secondary 1/2, minor 1/4 (involved a little: grips, braces, steadies or assists).
 # Muscle ids come from muscles.json. Lists are comma-separated; aliases are separated by ";".

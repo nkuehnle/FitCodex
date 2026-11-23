@@ -35,7 +35,7 @@ export function syncWeighInReminder(plan: WeighInPlan) {
       "2023-01-01",
       plan.times.map(minutesOf),
       plan.times.map(() => "Weigh-in day"),
-      plan.times.map(() => "Step on the scale and log it in FitLedger"),
+      plan.times.map(() => "Step on the scale and log it in FitCodex"),
     )
     .catch(() => {});
 }

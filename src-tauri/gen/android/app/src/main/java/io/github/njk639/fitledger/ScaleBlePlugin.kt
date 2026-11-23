@@ -82,7 +82,7 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
         val miss = missing()
         if (miss.isNotEmpty()) {
             activity.requestPermissions(miss.toTypedArray(), 4712)
-            invoke.reject("Allow Nearby devices (Bluetooth) for FitLedger, then try again")
+            invoke.reject("Allow Nearby devices (Bluetooth) for FitCodex, then try again")
             return false
         }
         if (adapter?.isEnabled != true) {

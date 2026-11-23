@@ -247,7 +247,7 @@ impl Db {
         }
         let tables: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workout'", [], |r| r.get(0))?;
         if tables == 0 {
-            return Err(Error::Format("not a FitLedger backup".into()));
+            return Err(Error::Format("not a FitCodex backup".into()));
         }
         backup_info(&conn)
     }
@@ -281,7 +281,7 @@ impl Db {
         let info = Self::inspect_backup(&path)?;
         let current = MIGRATION_COUNT as i64;
         if info.schema_version > current {
-            return Err(Error::Format("this backup was made by a newer version of FitLedger; update the app first".into()));
+            return Err(Error::Format("this backup was made by a newer version of FitCodex; update the app first".into()));
         }
         let src = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         {

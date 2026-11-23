@@ -53,7 +53,7 @@ export function planNudges(w: WorkoutDetail, readyAt: number, startMs: number, t
     set = {
       atMs: readyAt + (2 * setSeconds(next.e, next.s) + 90) * 1000,
       title: "Mark off your next set",
-      text: `${next.e.name} · set ${next.n}. Done it? Tick it off in FitLedger.`,
+      text: `${next.e.name} · set ${next.n}. Done it? Tick it off in FitCodex.`,
     };
   } else if (all.length) {
     set = { atMs: readyAt + 3 * MIN, title: "All sets done", text: `Tap Finish to save ${w.name}.` };

@@ -65,7 +65,7 @@ class ReadArgs {
 /**
  * Reads what watches, scales and health apps (Garmin Connect, Fitbit, Oura, Arboleaf, …) wrote to
  * Health Connect: weigh-ins, body composition (body fat, lean, bone and water mass, BMR), exercise
- * sessions, heart rate over FitLedger workouts, sleep, resting HR, HRV and steps.
+ * sessions, heart rate over FitCodex workouts, sleep, resting HR, HRV and steps.
  * Read-only; returns JSON shaped like fitledger_core::wearables::WearableImport.
  */
 @TauriPlugin

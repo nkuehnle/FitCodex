@@ -31,9 +31,9 @@ export async function syncWorkoutReminder(plan?: WorkoutReminderPlan) {
       const planned = s?.days[i] ?? null;
       const optional = s?.optional[i] ?? null;
       if (planned !== null && p.planned)
-        return { at: p.planned, title: `${name(planned)} today`, text: "Your scheduled workout. Start it in FitLedger." };
+        return { at: p.planned, title: `${name(planned)} today`, text: "Your scheduled workout. Start it in FitCodex." };
       if (planned === null && optional !== null && p.optional)
-        return { at: p.optional, title: `Rest day: ${name(optional)}?`, text: "It's optional. Start it in FitLedger if you feel like it." };
+        return { at: p.optional, title: `Rest day: ${name(optional)}?`, text: "It's optional. Start it in FitCodex if you feel like it." };
       return { at: null, title: "", text: "" };
     });
     // A weekly schedule's days are weekdays from Monday; a cycle counts from its start date.

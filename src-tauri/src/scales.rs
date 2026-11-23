@@ -249,7 +249,7 @@ fn session_for(db: &Db, profile: &str, unit_lb: bool) -> fitledger_core::Result<
 pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String, address: Option<String>) -> CmdResult<serde_json::Value> {
     let names = with(&state, |db| db.scale_profile(&profile))?.bluetooth.map(|b| b.names).unwrap_or_default();
     let r = ble_call(&app, "scan", serde_json::json!({ "names": names, "timeoutMs": 10000, "address": address.unwrap_or_default() })).await;
-    let mut log = vec![format!("# FitLedger scale scan: profile {profile}, {}", Local::now().format(TIME_FMT))];
+    let mut log = vec![format!("# FitCodex scale scan: profile {profile}, {}", Local::now().format(TIME_FMT))];
     match &r {
         Ok(v) => {
             for (kind, key) in [("scale", "devices"), ("other", "others")] {
@@ -278,7 +278,7 @@ pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, b
 pub async fn scale_ble_connect(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String, address: String, mass_unit: String) -> CmdResult<()> {
     let (qn, profile) = with(&state, |db| session_for(db, &profile, mass_unit == "lb"))?;
     let bt = &qn.config().bluetooth;
-    let head = format!("# FitLedger scale capture: profile {}, {}, {address}, user {} key {}", profile.id, Local::now().format(TIME_FMT), bt.slot, bt.user_key);
+    let head = format!("# FitCodex scale capture: profile {}, {}, {address}, user {} key {}", profile.id, Local::now().format(TIME_FMT), bt.slot, bt.user_key);
     *ble.0.lock().map_err(|e| e.to_string())? = Some(BleSession {
         qn,
         log: vec![head],

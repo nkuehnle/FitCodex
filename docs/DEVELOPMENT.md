@@ -1,4 +1,4 @@
-# Developing FitLedger
+# Developing FitCodex
 
 Tauri 2 app: Rust + SQLite backend (`crates/core`, no Tauri dependency), InBody OCR
 (`crates/ocr`), a thin Tauri shell with Android plugins (`src-tauri`), and a React + TypeScript +
@@ -85,14 +85,14 @@ same signing key, which is one more reason to keep the keystore safe. To test on
 `adb shell bmgr backupnow io.github.njk639.fitledger`, then uninstall and reinstall.
 
 **Google Drive backup (optional, Android).** Off by default; the Data page turns it on. The
-automatic backup is then also uploaded to a "FitLedger" folder in the user's Drive, on the same
+automatic backup is then also uploaded to a "FitCodex" folder in the user's Drive, on the same
 schedule and with the same number kept (`DrivePlugin.kt`, registered as the `drive` plugin). It
 asks only for the `drive.file` scope, so it sees just the files it created. Google matches the app
 by package name and signing SHA-1 against an Android OAuth client in a Google Cloud project, so
 only APKs signed with the release key can sign in; there is no client ID or secret in the code.
 While that project's consent screen is in "Testing", only listed test users can turn it on.
 
-Exports and backups on Android save to `Download/FitLedger` (or open the share sheet). A weekly
+Exports and backups on Android save to `Download/FitCodex` (or open the share sheet). A weekly
 automatic backup (`fitledger-auto-<date>.fitledger`, newest 4 kept) goes to the same folder, or to
 `auto-backups/` in the app data folder on desktop; it can be turned off on the Data page.
 

@@ -186,7 +186,7 @@ export default function App() {
     <PrefsContext.Provider value={prefs}>
       <div className="shell">
         <nav className="nav desktop-nav" aria-label="Main">
-          <div className="brand">FitLedger</div>
+          <div className="brand">FitCodex</div>
           {TABS.map((t) => (
             <a key={t} href={`#/${t}`} className={current === t ? "nav-item active" : "nav-item"}>
               <NavIcon d={ICONS[t]} />

@@ -360,19 +360,19 @@ class RestTimerPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
-    /** Copies an image from the app's cache into the gallery (Pictures/FitLedger). */
+    /** Copies an image from the app's cache into the gallery (Pictures/FitCodex). */
     @Command
     fun saveImage(invoke: Invoke) {
-        saveTo(invoke, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "Pictures/FitLedger", "Saving to Photos")
+        saveTo(invoke, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "Pictures/FitCodex", "Saving to Photos")
     }
 
-    /** Copies a backup or export from the app's cache into Downloads/FitLedger. */
+    /** Copies a backup or export from the app's cache into Downloads/FitCodex. */
     @Command
     fun saveDownload(invoke: Invoke) {
-        saveTo(invoke, android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, "Download/FitLedger", "Saving to Downloads")
+        saveTo(invoke, android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, "Download/FitCodex", "Saving to Downloads")
     }
 
-    /** Keeps only the newest `keep` files in Downloads/FitLedger whose names start with `prefix`
+    /** Keeps only the newest `keep` files in Downloads/FitCodex whose names start with `prefix`
      *  (names carry the date, so newest sorts last). Files the app no longer owns are skipped. */
     @Command
     fun pruneDownloads(invoke: Invoke) {
@@ -388,7 +388,7 @@ class RestTimerPlugin(private val activity: Activity) : Plugin(activity) {
             collection,
             arrayOf(android.provider.MediaStore.MediaColumns._ID, android.provider.MediaStore.MediaColumns.DISPLAY_NAME),
             "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
-            arrayOf("Download/FitLedger%", "${a.prefix}%"),
+            arrayOf("Download/FitCodex%", "${a.prefix}%"),
             null,
         )?.use { c ->
             while (c.moveToNext()) found.add(c.getLong(0) to c.getString(1))

@@ -1,4 +1,4 @@
-# FitLedger plan
+# FitCodex plan
 
 Personal, offline lift tracker built around supersets. Tauri 2 (Android, Windows, Linux),
 Rust + SQLite backend, React + TypeScript + D3 frontend.

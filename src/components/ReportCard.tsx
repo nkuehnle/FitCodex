@@ -24,7 +24,7 @@ export function ReportCard() {
     <section className="card">
       <h2 className="section-title">Progress report</h2>
       <p className="muted small">
-        FitLedger never sends anything by itself. The report goes only where you send it, and includes health data if you leave that box
+        FitCodex never sends anything by itself. The report goes only where you send it, and includes health data if you leave that box
         ticked.
       </p>
       <div className="segmented">
@@ -43,7 +43,7 @@ export function ReportCard() {
           className="button primary"
           onClick={() =>
             run(async (report) => {
-              const saved = await saveOrShareText(`fitledger-report-${today()}.md`, "text/plain", report);
+              const saved = await saveOrShareText(`fitcodex-report-${today()}.md`, "text/plain", report);
               return saved && `Saved ${saved}`;
             })
           }

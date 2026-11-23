@@ -147,7 +147,7 @@ export default function DataPage() {
         <h2 className="section-title">Strong export</h2>
         <p className="muted small">
           In Strong: Settings → Export data. Choose the workouts, bodyweight or body measurement CSVs (several measurement files at
-          once is fine); FitLedger tells them apart. Importing the same file again won't create duplicates.
+          once is fine); FitCodex tells them apart. Importing the same file again won't create duplicates.
         </p>
         <label className="button primary file-button">
           Choose CSV files
@@ -253,7 +253,7 @@ export default function DataPage() {
   );
 }
 
-/** Optional: the automatic backup also goes to a "FitLedger" folder in Google Drive. Off until turned on. */
+/** Optional: the automatic backup also goes to a "FitCodex" folder in Google Drive. Off until turned on. */
 function DriveBackup() {
   const [d, setD] = useState<{ on: boolean; last: string | null; error: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -290,7 +290,7 @@ function DriveBackup() {
           disabled={busy}
           onChange={(e) => (e.target.checked ? upload(true) : api.setSetting("drive_backup", "off").then(load))}
         />
-        Also back up to Google Drive (a FitLedger folder in your Drive)
+        Also back up to Google Drive (a FitCodex folder in your Drive)
       </label>
       {d.error && (d.on || busy) && <p className="warn small">⚠ The last Google Drive backup failed: {d.error}</p>}
       {d.error && !d.on && !busy && <p className="warn small">⚠ Couldn't turn on Google Drive backup: {d.error}</p>}
@@ -348,7 +348,7 @@ function ExportBackup() {
         <h2 className="section-title">Back up</h2>
         {IS_ANDROID && (
           <p className="small success">
-            Android backs FitLedger up to your Google account automatically and restores it when you install the app on a new phone (check
+            Android backs FitCodex up to your Google account automatically and restores it when you install the app on a new phone (check
             Settings › Google › Backup is on). Use the file below to move your data to a computer or keep your own copy.
           </p>
         )}
@@ -367,8 +367,8 @@ function ExportBackup() {
                   return `Saved ${info.workouts} workouts to ${saved}. Restore… can open it from there.`;
                 }
                 const path = await save({
-                  defaultPath: `fitledger-${today()}.fitledger`,
-                  filters: [{ name: "FitLedger backup", extensions: ["fitledger"] }],
+                  defaultPath: `fitcodex-${today()}.fitcodex`,
+                  filters: [{ name: "FitCodex backup", extensions: ["fitcodex"] }],
                 });
                 if (!path) return null;
                 const info = await api.backupTo(path);
@@ -417,7 +417,7 @@ function ExportBackup() {
                 run(async () => {
                   const path = await open({
                     multiple: false,
-                    filters: [{ name: "FitLedger backup", extensions: ["fitledger", "liftbook", "db", "sqlite"] }],
+                    filters: [{ name: "FitCodex backup", extensions: ["fitcodex", "fitledger", "liftbook", "db", "sqlite"] }],
                   });
                   if (!path || Array.isArray(path)) return null;
                   setPending({ path, backup: await api.inspectBackup(path), local: await api.dbInfo() });
@@ -440,7 +440,7 @@ function ExportBackup() {
                   api.setSetting("auto_backup", e.target.checked ? "on" : "off");
                 }}
               />
-              Back up automatically to {IS_ANDROID ? "Download/FitLedger" : auto.dir || "the app's auto-backups folder"}
+              Back up automatically to {IS_ANDROID ? "Download/FitCodex" : auto.dir || "the app's auto-backups folder"}
             </label>
             {auto.on && (
               <>
@@ -551,27 +551,27 @@ function ExportBackup() {
       <section className="card">
         <h2 className="section-title">Export</h2>
         <div className="export-list">
-          <button className="start-row" onClick={() => exportTo("strong", "fitledger-workouts", "csv")}>
+          <button className="start-row" onClick={() => exportTo("strong", "fitcodex-workouts", "csv")}>
             <span>Workouts (Strong CSV format)</span>
             <span className="muted">›</span>
           </button>
-          <button className="start-row" onClick={() => exportTo("bodyweight", "fitledger-bodyweight", "csv")}>
+          <button className="start-row" onClick={() => exportTo("bodyweight", "fitcodex-bodyweight", "csv")}>
             <span>Bodyweight CSV</span>
             <span className="muted">›</span>
           </button>
-          <button className="start-row" onClick={() => exportTo("inbody", "fitledger-body-composition", "csv")}>
+          <button className="start-row" onClick={() => exportTo("inbody", "fitcodex-body-composition", "csv")}>
             <span>Body composition (InBody) CSV</span>
             <span className="muted">›</span>
           </button>
-          <button className="start-row" onClick={() => exportTo("diet", "fitledger-diet", "csv")}>
+          <button className="start-row" onClick={() => exportTo("diet", "fitcodex-diet", "csv")}>
             <span>Diet CSV</span>
             <span className="muted">›</span>
           </button>
-          <button className="start-row" onClick={() => exportTo("measurements", "fitledger-measurements", "csv")}>
+          <button className="start-row" onClick={() => exportTo("measurements", "fitcodex-measurements", "csv")}>
             <span>Body measurements CSV</span>
             <span className="muted">›</span>
           </button>
-          <button className="start-row" onClick={() => exportTo("json", "fitledger-export", "json")}>
+          <button className="start-row" onClick={() => exportTo("json", "fitcodex-export", "json")}>
             <span>Everything (JSON)</span>
             <span className="muted">›</span>
           </button>
@@ -579,7 +579,7 @@ function ExportBackup() {
         {IS_ANDROID && (
           <label className="check small muted">
             <input type="checkbox" checked={shareExports} onChange={(e) => setShareExports(e.target.checked)} />
-            Open the share sheet instead of saving to Downloads/FitLedger
+            Open the share sheet instead of saving to Downloads/FitCodex
           </label>
         )}
       </section>

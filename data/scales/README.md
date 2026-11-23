@@ -1,6 +1,6 @@
 # Scale profiles
 
-One JSON file per body-composition device family. FitLedger bundles these; users can add their own
+One JSON file per body-composition device family. FitCodex bundles these; users can add their own
 (or override a bundled one with the same `id`) from Settings → Scale → Scale profiles, so a new scale
 usually needs only a profile, not code.
 

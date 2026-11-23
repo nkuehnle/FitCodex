@@ -1,4 +1,4 @@
-//! Imports Strong CSV exports into a FitLedger database file, exactly as the app's Import screen does
+//! Imports Strong CSV exports into a FitCodex database file, exactly as the app's Import screen does
 //! (import, then auto-map exercise names). Useful for loading test data.
 //! Usage: cargo run -p fitledger-core --example import_strong -- <db path> <csv>...
 fn main() {

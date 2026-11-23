@@ -2,7 +2,7 @@
 //! numbers (sleep, resting HR, HRV, steps) from Android Health Connect, which Garmin Connect, Fitbit
 //! and Oura all write to, and from Garmin `.fit` activity files.
 //!
-//! An activity that overlaps a workout already in FitLedger only adds its heart rate to that
+//! An activity that overlaps a workout already in FitCodex only adds its heart rate to that
 //! workout, so a watch "Strength" recording, or the same run from two sources, is never doubled.
 //! Other cardio activities become finished one-exercise workouts keyed by `source_key`, so
 //! re-imports are idempotent.
@@ -293,7 +293,7 @@ impl Db {
 
 // ---- Garmin .fit files --------------------------------------------------------------------------
 
-/// Library slug for a FIT sport / sub-sport, None when it isn't cardio FitLedger tracks.
+/// Library slug for a FIT sport / sub-sport, None when it isn't cardio FitCodex tracks.
 fn fit_slug(sport: &str, sub: &str) -> Option<&'static str> {
     Some(match (sport, sub) {
         ("running", "treadmill" | "indoor_running") => "running-treadmill",
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn activities_become_cardio_once_and_lend_hr_to_overlapping_workouts() {
         let mut db = Db::open_in_memory().unwrap();
-        // A strength workout logged in FitLedger, 18:00–19:00.
+        // A strength workout logged in FitCodex, 18:00–19:00.
         db.conn()
             .execute("INSERT INTO workout (name, started_at_local, duration_s, finished) VALUES ('Push', '2026-11-01 18:00:00', 3600, 1)", [])
             .unwrap();

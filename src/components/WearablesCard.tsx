@@ -61,7 +61,7 @@ function HealthConnectSection() {
     <>
       <div className="section-label">Health Connect</div>
       {status.granted === 0 ? (
-        <p className="small muted">Not connected. FitLedger only reads; nothing leaves this phone.</p>
+        <p className="small muted">Not connected. FitCodex only reads; nothing leaves this phone.</p>
       ) : (
         <p className="small">
           Connected ({status.granted} of {status.total} kinds of data)
@@ -96,7 +96,7 @@ function HealthConnectSection() {
       <p className="small muted">
         Your watch's app has to share with Health Connect too. In Garmin Connect, look under Settings › Connected Apps › Health Connect;
         Fitbit and Oura have the same switch in their settings, and so do smart-scale apps such as Arboleaf (body fat, lean, bone and
-        water mass then arrive as body-composition scans). FitLedger syncs when you open it or come back to it, and every 30 minutes while it's open.
+        water mass then arrive as body-composition scans). FitCodex syncs when you open it or come back to it, and every 30 minutes while it's open.
       </p>
     </>
   );

@@ -872,14 +872,14 @@ fn share_file(app: &tauri::AppHandle, path: &std::path::Path, mime: &str, title:
     native_call(app, "shareFile", serde_json::json!({ "path": path.to_string_lossy(), "mime": mime, "title": title }))
 }
 
-/// Shares the file, or with `to_downloads` copies it into Downloads/FitLedger and says where.
+/// Shares the file, or with `to_downloads` copies it into Downloads/FitCodex and says where.
 fn share_or_save(app: &tauri::AppHandle, path: &std::path::Path, mime: &str, title: &str, to_downloads: bool) -> CmdResult<Option<String>> {
     if !to_downloads {
         return share_file(app, path, mime, title).map(|_| None);
     }
     native_call(app, "saveDownload", serde_json::json!({ "path": path.to_string_lossy(), "mime": mime, "title": "" }))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(Some(format!("Download/FitLedger/{name}")))
+    Ok(Some(format!("Download/FitCodex/{name}")))
 }
 
 fn today_stamp() -> String {
@@ -890,21 +890,21 @@ fn today_stamp() -> String {
 fn share_export(app: tauri::AppHandle, state: State<AppState>, kind: String, to_downloads: bool) -> CmdResult<Option<String>> {
     let text = export_text(&state, &kind)?;
     let (name, mime) = match kind.as_str() {
-        "json" => ("fitledger-export.json", "application/json"),
-        "strong" => ("fitledger-workouts.csv", "text/csv"),
-        "bodyweight" => ("fitledger-bodyweight.csv", "text/csv"),
-        "inbody" => ("fitledger-body-composition.csv", "text/csv"),
-        "measurements" => ("fitledger-measurements.csv", "text/csv"),
-        _ => ("fitledger-diet.csv", "text/csv"),
+        "json" => ("fitcodex-export.json", "application/json"),
+        "strong" => ("fitcodex-workouts.csv", "text/csv"),
+        "bodyweight" => ("fitcodex-bodyweight.csv", "text/csv"),
+        "inbody" => ("fitcodex-body-composition.csv", "text/csv"),
+        "measurements" => ("fitcodex-measurements.csv", "text/csv"),
+        _ => ("fitcodex-diet.csv", "text/csv"),
     };
-    let path = share_dir(&app)?.join(name.replace("fitledger-", &format!("fitledger-{}-", today_stamp())));
+    let path = share_dir(&app)?.join(name.replace("fitcodex-", &format!("fitcodex-{}-", today_stamp())));
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     share_or_save(&app, &path, mime, "Export", to_downloads)
 }
 
 #[tauri::command]
 fn share_backup(app: tauri::AppHandle, state: State<AppState>, to_downloads: bool) -> CmdResult<(BackupInfo, Option<String>)> {
-    let path = share_dir(&app)?.join(format!("fitledger-{}.fitledger", today_stamp()));
+    let path = share_dir(&app)?.join(format!("fitcodex-{}.fitcodex", today_stamp()));
     let info = backup_to(state, path.to_string_lossy().into_owned())?;
     let saved = share_or_save(&app, &path, "application/octet-stream", "Save backup", to_downloads)?;
     Ok((info, saved))
@@ -959,7 +959,7 @@ async fn read_inbody_image(app: tauri::AppHandle, data: String, mass_unit: Optio
     Ok(InBodyImageRead { measured_at: r.measured_at, values, doubtful: r.doubtful, mass_unit: r.mass_unit })
 }
 
-/// Android: saves a PNG (sent as base64) to the gallery, Pictures/FitLedger.
+/// Android: saves a PNG (sent as base64) to the gallery, Pictures/FitCodex.
 #[tauri::command]
 fn save_png_to_photos(app: tauri::AppHandle, name: String, data: String) -> CmdResult<()> {
     let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
@@ -979,7 +979,7 @@ struct StagedBackup {
 #[tauri::command]
 fn stage_backup(app: tauri::AppHandle, data: String) -> CmdResult<StagedBackup> {
     let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
-    let path = share_dir(&app)?.join("restore.fitledger");
+    let path = share_dir(&app)?.join("restore.fitcodex");
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     let info = Db::inspect_backup(&path).map_err(err)?;
     Ok(StagedBackup { path: path.to_string_lossy().into_owned(), info })
@@ -1101,7 +1101,7 @@ fn log_cardio(state: State<AppState>, entry: fitledger_core::cardio::CardioEntry
 // ---- Automatic backups ------------------------------------------------------------------------------
 //
 // Weekly or daily (checked when the app starts and after a workout) a full backup goes to
-// Download/FitLedger on Android, or a chosen folder or the app data folder's auto-backups/
+// Download/FitCodex on Android, or a chosen folder or the app data folder's auto-backups/
 // elsewhere. Only the newest few are kept.
 
 /// Writes a full backup and prunes older ones with the same prefix; returns where it went. On
@@ -1113,7 +1113,7 @@ fn write_backup_copy(app: &tauri::AppHandle, db: &Db, name: &str, prefix: &str, 
         db.backup_to(&path).map_err(err)?;
         native_call(app, "saveDownload", serde_json::json!({ "path": path.to_string_lossy(), "mime": "application/octet-stream", "title": "" }))?;
         native_call(app, "pruneDownloads", serde_json::json!({ "prefix": prefix, "keep": keep }))?;
-        Ok(format!("Download/FitLedger/{name}"))
+        Ok(format!("Download/FitCodex/{name}"))
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -1156,8 +1156,8 @@ fn auto_backup(app: tauri::AppHandle, state: State<AppState>, force: bool) -> Cm
         if !force && (!enabled || !due || db.counts()?.workouts == 0) {
             return Ok(Err(None));
         }
-        let name = format!("fitledger-auto-{}.fitledger", today_stamp());
-        Ok(match write_backup_copy(&app, db, &name, "fitledger-auto-", keep) {
+        let name = format!("fitcodex-auto-{}.fitcodex", today_stamp());
+        Ok(match write_backup_copy(&app, db, &name, "fitcodex-auto-", keep) {
             Ok(place) => {
                 db.record_auto_backup(Ok(()), now)?;
                 Ok(place)
@@ -1175,7 +1175,7 @@ fn auto_backup(app: tauri::AppHandle, state: State<AppState>, force: bool) -> Cm
     })
 }
 
-// Optional: the same backup also goes to a "FitLedger" folder in the user's Google Drive
+// Optional: the same backup also goes to a "FitCodex" folder in the user's Google Drive
 // (Android, gen/android/.../DrivePlugin.kt). Off unless the `drive_backup` setting is "on".
 
 #[cfg(target_os = "android")]
@@ -1222,7 +1222,7 @@ async fn drive_connect(app: tauri::AppHandle) -> CmdResult<()> {
 #[tauri::command]
 async fn drive_backup(app: tauri::AppHandle, state: State<'_, AppState>, force: bool) -> CmdResult<bool> {
     let now = Local::now().naive_local();
-    let name = format!("fitledger-auto-{}.fitledger", today_stamp());
+    let name = format!("fitcodex-auto-{}.fitcodex", today_stamp());
     let path = share_dir(&app)?.join(format!("drive-{name}"));
     let keep = with(&state, |db| {
         let (every_days, keep) = auto_backup_policy(db.setting("auto_backup_days")?.as_deref());
@@ -1235,7 +1235,7 @@ async fn drive_backup(app: tauri::AppHandle, state: State<'_, AppState>, force: 
         Ok(Some(keep))
     })?;
     let Some(keep) = keep else { return Ok(false) };
-    let args = serde_json::json!({ "path": path.to_string_lossy(), "name": name, "prefix": "fitledger-auto-", "keep": keep });
+    let args = serde_json::json!({ "path": path.to_string_lossy(), "name": name, "prefix": "fitcodex-auto-", "keep": keep });
     let outcome = drive_call(&app, "upload", args).await;
     let _ = std::fs::remove_file(&path);
     with(&state, |db| match &outcome {
@@ -1265,7 +1265,7 @@ fn inspect_backup(path: String) -> CmdResult<BackupInfo> {
 #[tauri::command]
 fn restore_from(app: tauri::AppHandle, state: State<AppState>, path: String) -> CmdResult<String> {
     // The time is in the name so a second restore can't replace the first one's safety copy.
-    let name = format!("fitledger-before-restore-{}.fitledger", Local::now().format("%Y-%m-%d-%H%M%S"));
+    let name = format!("fitcodex-before-restore-{}.fitcodex", Local::now().format("%Y-%m-%d-%H%M%S"));
     with(&state, |db| {
         db.restore_with_snapshot(&path, |db| write_backup_copy(&app, db, &name, "fitledger-before-restore-", 2).map_err(fitledger_core::Error::Format))
     })
@@ -1443,7 +1443,7 @@ fn restore_account_backup_if_fresh(dir: &std::path::Path) -> std::io::Result<()>
 }
 
 /// Desktop: the app was called Liftbook (data dir io.github.njk639.liftbook, liftbook.db). On the
-/// first FitLedger start, copy that database over; the old folder is left as it was.
+/// first FitCodex start, copy that database over; the old folder is left as it was.
 #[cfg(not(target_os = "android"))]
 fn copy_liftbook_data_if_fresh(dir: &std::path::Path) -> std::io::Result<()> {
     let old = dir.with_file_name("io.github.njk639.liftbook");
