@@ -621,9 +621,9 @@ fn programs() -> Vec<Program> {
 }
 
 #[tauri::command]
-fn install_program(state: State<AppState>, program_id: String, start: String) -> CmdResult<Vec<i64>> {
+fn install_program(state: State<AppState>, program_id: String, start: String, weekdays: Option<Vec<usize>>) -> CmdResult<Vec<i64>> {
     let d = date(&start)?;
-    with(&state, |db| db.install_program(&program_id, d))
+    with(&state, |db| db.install_program(&program_id, d, weekdays.as_deref()))
 }
 
 // ---- Body -----------------------------------------------------------------------------------------

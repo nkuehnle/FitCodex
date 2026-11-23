@@ -59,7 +59,8 @@ from **Settings → Import, export & backup → Restore…**.
 - **Workout reminders** on scheduled training days and/or rest days with an optional activity.
 - **Suggested weights** fill the empty boxes. Progression hints (go up, repeat, or deload after
   repeated misses) and a next-time "up / hold / down" note for each exercise.
-- **Templates, routines and starter programs**, with a weekly or custom-length schedule. The
+- **Templates, routines and starter programs**, with a weekly or custom-length schedule. Starter
+  programs show their workouts before you add them, and you pick which weekdays they run on. The
   New workout list puts today's planned workout, or one you missed this week, first.
 - **Shareable routines:** send a schedule or a single template as a `.fitroutine.json` file, custom
   exercises included. The file holds your plan only, never your logged workouts or weights.

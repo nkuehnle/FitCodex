@@ -827,6 +827,40 @@ i.dot {
   cursor: pointer;
   user-select: none;
 }
+.program + .program {
+  border-top: 1px solid var(--border);
+}
+.program-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.program-body {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+.program-body .chips-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.program-body .chip-btn {
+  padding: 6px 0;
+}
+.program-workout ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
 .chip-btn.active {
   background: var(--accent-soft);
   border-color: var(--accent);

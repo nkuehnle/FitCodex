@@ -447,9 +447,13 @@ impl Db {
         Ok(ids.into_values().collect())
     }
 
-    /// Creates a built-in program's templates and makes its schedule active from `start`.
-    pub fn install_program(&mut self, program_id: &str, start: NaiveDate) -> Result<Vec<i64>> {
-        let p = crate::planning::programs().into_iter().find(|p| p.id == program_id).ok_or_else(|| Error::Format(format!("unknown program {program_id:?}")))?;
+    /// Creates a built-in program's templates and makes its schedule active from `start`, on the
+    /// given weekdays (0 = Monday) or the program's own.
+    pub fn install_program(&mut self, program_id: &str, start: NaiveDate, weekdays: Option<&[usize]>) -> Result<Vec<i64>> {
+        let mut p = crate::planning::programs().into_iter().find(|p| p.id == program_id).ok_or_else(|| Error::Format(format!("unknown program {program_id:?}")))?;
+        if let Some(w) = weekdays {
+            p.days = p.on_weekdays(w)?;
+        }
         self.install_routine(&program_routine(&p)?, true, start)
     }
 }

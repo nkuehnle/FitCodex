@@ -1003,7 +1003,9 @@ export const api = {
   applyHistoryProposal: (proposal: { phases: ProposedPhase[] }, start: string) =>
     invoke<[string, string][]>("apply_history_proposal", { proposal, start }),
   programs: () => invoke<Program[]>("programs"),
-  installProgram: (programId: string, start: string) => invoke<number[]>("install_program", { programId, start }),
+  /** `weekdays`: 0 = Monday; leave out for the program's own days. */
+  installProgram: (programId: string, start: string, weekdays?: number[]) =>
+    invoke<number[]>("install_program", { programId, start, weekdays }),
   /** A routine file for one template, or for the active schedule without an id. */
   routineText: (templateId?: number) => invoke<string>("routine_text", { templateId: templateId ?? null }),
   routineResources: () => invoke<string>("routine_resources"),

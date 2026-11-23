@@ -908,6 +908,21 @@ mod tests {
         assert_eq!(n(&["Lower A", "Upper A", "Lower B", "Upper B"]), "Lower / Upper");
         assert_eq!(n(&["Limb A", "Torso A"]), "Limb / Torso");
     }
+
+    #[test]
+    fn programs_move_to_other_weekdays() {
+        let all = programs();
+        let sl = all.iter().find(|p| p.id == "stronglifts-5x5").unwrap();
+        assert_eq!(sl.per_week(), 3);
+        let days = sl.on_weekdays(&[5, 1, 3]).unwrap();
+        let on: Vec<(usize, &str)> = days.iter().enumerate().filter_map(|(i, d)| Some((i, d.as_deref()?))).collect();
+        assert_eq!(on, vec![(1, "SL A"), (3, "SL B"), (5, "SL A"), (8, "SL B"), (10, "SL A"), (12, "SL B")]);
+        assert!(sl.on_weekdays(&[0, 2]).is_err());
+        for p in &all {
+            let n = p.days.chunks(7).map(|w| w.iter().flatten().count());
+            assert!(n.clone().all(|c| c == p.per_week()), "{} has uneven weeks", p.id);
+        }
+    }
 }
 
 // ---- Built-in starter programs
@@ -933,4 +948,32 @@ struct ProgramsFile {
 
 pub fn programs() -> Vec<Program> {
     serde_json::from_str::<ProgramsFile>(PROGRAMS_JSON).expect("embedded programs.json is valid").programs
+}
+
+impl Program {
+    /// Workouts per week (the same every week of the cycle).
+    pub fn per_week(&self) -> usize {
+        self.days.chunks(7).map(|w| w.iter().flatten().count()).max().unwrap_or(0)
+    }
+
+    /// The program moved onto other weekdays (0 = Monday): each week's workouts keep their order
+    /// and land on those days, the rest are rest days.
+    pub fn on_weekdays(&self, weekdays: &[usize]) -> Result<Vec<Option<String>>> {
+        let mut picked: Vec<usize> = weekdays.to_vec();
+        picked.sort_unstable();
+        picked.dedup();
+        if picked.len() != self.per_week() || picked.iter().any(|&d| d > 6) {
+            return Err(Error::Format(format!("pick {} days for {}", self.per_week(), self.name)));
+        }
+        let mut days = Vec::with_capacity(self.days.len());
+        for week in self.days.chunks(7) {
+            let mut workouts = week.iter().flatten();
+            let mut out = vec![None; 7];
+            for &d in &picked {
+                out[d] = workouts.next().cloned();
+            }
+            days.extend(out);
+        }
+        Ok(days)
+    }
 }

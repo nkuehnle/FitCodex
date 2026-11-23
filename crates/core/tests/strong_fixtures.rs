@@ -93,7 +93,7 @@ fn every_builtin_program_installs() {
     let start = chrono::NaiveDate::from_ymd_opt(2026, 11, 2).unwrap();
     for p in fitledger_core::planning::programs() {
         let mut db = Db::open_in_memory().unwrap();
-        let ids = db.install_program(&p.id, start).unwrap();
+        let ids = db.install_program(&p.id, start, None).unwrap();
         assert_eq!(ids.len(), p.templates.len(), "{}", p.id);
         let s = db.active_schedule().unwrap().unwrap();
         assert_eq!(s.days.iter().flatten().count(), p.days.iter().flatten().count());
@@ -106,7 +106,7 @@ fn two_week_programs_alternate_on_the_same_weekdays() {
     // Installed on a Wednesday: the cycle counts from that Monday, A/B/A then B/A/B.
     let d = |day| chrono::NaiveDate::from_ymd_opt(2026, 11, day).unwrap();
     let mut db = Db::open_in_memory().unwrap();
-    db.install_program("stronglifts-5x5", d(4)).unwrap();
+    db.install_program("stronglifts-5x5", d(4), None).unwrap();
     let s = db.active_schedule().unwrap().unwrap();
     assert_eq!((s.kind.as_str(), s.cycle_length, s.start_date.as_str()), ("cycle", 14, "2026-11-02"));
     let name = |day| {

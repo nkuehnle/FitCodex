@@ -604,28 +604,120 @@ function ScheduleTab() {
       <RoutineSharing name={s.name} canExport={s.id !== null} onImported={load} />
       <section className="card">
         <h2 className="section-title">Starter programs</h2>
+        <p className="muted small">Tap one to see its workouts and pick your days.</p>
         {programs.map((p) => (
-          <div key={p.id} className="start-row">
-            <span>
-              <strong>{p.name}</strong>
-              <div className="muted small">{p.description}</div>
-            </span>
-            <button
-              className="button small"
-              onClick={async () => {
-                if (!(await ask(`Add ${p.name}? It creates its templates and becomes your active schedule.`))) return;
-                await api.installProgram(p.id, today());
-                syncWorkoutReminder();
-                load();
-                setMsg(`${p.name} added. Edit its templates any time.`);
-              }}
-            >
-              Use
-            </button>
-          </div>
+          <StarterProgram
+            key={p.id}
+            program={p}
+            onInstalled={() => {
+              load();
+              setMsg(`${p.name} added. Edit its templates any time.`);
+            }}
+          />
         ))}
       </section>
     </>
+  );
+}
+
+/** Each week's workout days of a program, Monday = 0. */
+function programWeekdays(p: Program): number[] {
+  return p.days.slice(0, 7).flatMap((d, i) => (d ? [i] : []));
+}
+
+/** Where each workout lands, week by week, when the program runs on `picked` weekdays. */
+function programWeeks(p: Program, picked: number[]): string[] {
+  const sorted = [...picked].sort((a, b) => a - b);
+  const weeks: string[] = [];
+  for (let w = 0; w < p.days.length; w += 7) {
+    const workouts = p.days.slice(w, w + 7).filter((d): d is string => !!d);
+    weeks.push(sorted.map((d, i) => `${DAYS[d]} ${workouts[i] ?? ""}`).join(" · "));
+  }
+  return weeks;
+}
+
+let exerciseNames: Promise<Map<string, string>> | null = null;
+
+/** A starter program: tap to see its week and workouts, pick the weekdays, then use it. */
+function StarterProgram({ program: p, onInstalled }: { program: Program; onInstalled: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [names, setNames] = useState<Map<string, string> | null>(null);
+  const [picked, setPicked] = useState<number[]>(() => programWeekdays(p));
+  const need = programWeekdays(p).length;
+  useEffect(() => {
+    if (!open || names) return;
+    exerciseNames ??= api.listExercises(false).then((xs) => new Map(xs.map((x) => [x.slug, x.name])));
+    exerciseNames.then(setNames);
+  }, [open, names]);
+  const toggle = (d: number) =>
+    setPicked(picked.includes(d) ? picked.filter((x) => x !== d) : picked.length < need ? [...picked, d] : picked);
+  const weeks = programWeeks(p, picked);
+  // Templates in the order the week first uses them.
+  const order = [...new Set(p.days.filter((d): d is string => !!d))];
+
+  return (
+    <div className="program">
+      <button className="program-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span>
+          <strong>{p.name}</strong>
+          <div className="muted small">{p.description}</div>
+        </span>
+        <span className="muted" aria-hidden>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <div className="program-body">
+          <div className="small">
+            Your days: pick {need}
+            {picked.length < need ? ` (${need - picked.length} more)` : ""}
+          </div>
+          <div className="chips-row">
+            {DAYS.map((d, i) => (
+              <button key={d} className={`chip-btn${picked.includes(i) ? " active" : ""}`} onClick={() => toggle(i)}>
+                {d}
+              </button>
+            ))}
+          </div>
+          {picked.length === need && (
+            <div className="muted small">
+              {weeks.length > 1 ? weeks.map((w, i) => <div key={i}>Week {i + 1}: {w}</div>) : weeks[0]}
+            </div>
+          )}
+          {order.map((t) => (
+            <div key={t} className="program-workout">
+              <strong className="small">{t}</strong>
+              <ul className="small">
+                {(p.templates[t] as [string, number?, number?, number?, string?][]).map(([slug, sets, lo, hi, superset], i) => (
+                  <li key={i}>
+                    {names?.get(slug) ?? slug}
+                    <span className="muted">
+                      {" "}
+                      {sets ? `${sets} × ` : ""}
+                      {lo && hi && lo !== hi ? `${lo}–${hi}` : (lo ?? "")}
+                      {superset ? " · superset" : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <button
+            className="button primary"
+            disabled={picked.length !== need}
+            onClick={async () => {
+              if (!(await ask(`Add ${p.name}? It creates its templates and becomes your active schedule.`))) return;
+              await api.installProgram(p.id, today(), picked);
+              syncWorkoutReminder();
+              setOpen(false);
+              onInstalled();
+            }}
+          >
+            Use {p.name}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
