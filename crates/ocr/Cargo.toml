@@ -2,8 +2,11 @@
 name = "fitledger-ocr"
 version = "0.1.2"
 edition = "2021"
-description = "Offline OCR of InBody result sheets (ocrs)"
+description = "Offline OCR of InBody result sheets and body-composition app screenshots (ocrs)"
 license = "PolyForm-Noncommercial-1.0.0"
+
+[dev-dependencies]
+serde_json = "1"
 
 [dependencies]
 ocrs = { version = "0.13.1", features = ["rten"] }

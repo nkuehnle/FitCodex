@@ -27,7 +27,7 @@ const WEIGHT_DAYS = 10;
 const METHODS = ["inbody", "navy", "logged", "rfm"] as const;
 
 export const METHOD_TEXT: Record<PhaseSplit["method"], string> = {
-  inbody: "InBody scans",
+  inbody: "Body-comp scans",
   navy: "the Navy tape method (waist and neck)",
   logged: "body fat you logged",
   rfm: "waist and height (RFM)",

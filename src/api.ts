@@ -204,6 +204,8 @@ export interface WearableSummary {
   activities: number;
   workouts_hr: number;
   days: number;
+  /** Body-composition scans added or filled in (smart scales' apps). */
+  scans?: number;
 }
 
 export interface HealthConnectStatus {
@@ -570,7 +572,8 @@ export interface WeighInRow {
   id: number;
   at: string;
   weight_kg: number;
-  source: "manual" | "strong" | "inbody";
+  /** "manual", "strong", "inbody", or the scale or app it came from ("arboleaf", "garmin", …). */
+  source: string;
 }
 
 export interface InBodyField {
@@ -585,12 +588,73 @@ export interface InBodyScan {
   values: Record<string, number>;
   device: string | null;
   notes: string | null;
+  /** Device family (a scale profile id: "inbody", "arboleaf", …); "inbody" when missing. */
+  source?: string | null;
+}
+
+export interface ScaleProfile {
+  id: string;
+  name: string;
+  models: string[];
+  notes: string | null;
+  bluetooth: {
+    protocol: string;
+    names: string[];
+    user_key: number;
+    algorithm: number;
+    slot: number;
+    scrambled: boolean | null;
+    result_ack: boolean;
+    stored_records: boolean;
+  } | null;
+  health_connect_packages: string[];
+  labels: Record<string, string[]>;
+  field_notes: Record<string, string>;
+  builtin: boolean;
+}
+
+export interface BiaEstimate {
+  r20: number | null;
+  r100: number | null;
+  r50: number;
+  r50_interpolated: boolean;
+  ratio_100_20: number | null;
+  impedance_index: number;
+  ffm_kg: number;
+  fat_pct: number;
+  tbw_l: number;
+  method: string;
+}
+
+export interface ScaleDevice {
+  address: string;
+  name: string;
+  rssi: number;
+  manufacturer: string;
+}
+
+export interface ScalePump {
+  state: "idle" | "connecting" | "ready" | "closed";
+  error: string | null;
+  live_weight_kg: number | null;
+  stable: boolean;
+  readings: InBodyScan[];
+  stored: InBodyScan[];
+  notes: string[];
+}
+
+export interface MergeSummary {
+  inserted: number;
+  merged: number;
+  unchanged: number;
 }
 
 export interface CsvMapping {
   date_column: string;
   columns: Record<string, string>;
   mass_unit: WeightUnit;
+  /** Scale profile the file's scans come from; InBody when missing. */
+  source?: string | null;
 }
 
 export interface InBodyCsvPreview {
@@ -912,6 +976,29 @@ export const api = {
   updateMeasurement: (id: number, at: string, value: number) => invoke<void>("update_measurement", { id, at, value }),
   inbodyFields: () => invoke<InBodyField[]>("inbody_fields"),
   inbodyScans: () => invoke<InBodyScan[]>("inbody_scans"),
+  /** Scans from the one source analyses use (body fat trends, balance, reports). */
+  analysisScans: () => invoke<InBodyScan[]>("analysis_scans"),
+  bodyCompAnalysisSource: () => invoke<string | null>("body_comp_analysis_source"),
+  setBodyCompAnalysisSource: (source: string | null) => invoke<void>("set_body_comp_analysis_source", { source }),
+  scaleProfiles: () => invoke<ScaleProfile[]>("scale_profiles"),
+  saveScaleProfile: (json: string) => invoke<ScaleProfile>("save_scale_profile", { json }),
+  deleteScaleProfile: (id: string) => invoke<void>("delete_scale_profile", { id }),
+  mergeBodyCompScans: (scans: InBodyScan[]) => invoke<MergeSummary>("merge_body_comp_scans", { scans }),
+  biaEstimate: (values: Record<string, number>) => invoke<BiaEstimate | null>("bia_estimate", { values }),
+  /** On-device OCR of a scale app screenshot with a profile's labels; masses in kg. */
+  readBodyCompScreenshot: (data: string, profile: string, massUnit: "kg" | "lb") =>
+    invoke<{ measured_at: string | null; values: Record<string, number>; doubtful: string[]; text: string[] }>(
+      "read_body_comp_screenshot",
+      { data, profile, massUnit },
+    ),
+  scaleBleScan: (profile: string) => invoke<{ devices: ScaleDevice[] }>("scale_ble_scan", { profile }),
+  scaleBleConnect: (profile: string, address: string, massUnit: "kg" | "lb") =>
+    invoke<void>("scale_ble_connect", { profile, address, massUnit }),
+  scaleBlePump: () => invoke<ScalePump>("scale_ble_pump"),
+  scaleBleDisconnect: () => invoke<void>("scale_ble_disconnect"),
+  scaleBleLog: () => invoke<string>("scale_ble_log"),
+  scaleBleReplay: (profile: string, log: string, massUnit: "kg" | "lb") =>
+    invoke<ScalePump>("scale_ble_replay", { profile, log, massUnit }),
   normReference: (metric: string, who: NormWho, values: number[]) =>
     invoke<NormReference | null>("norm_reference", { metric, who, values }),
   /** Estimated 1RMs (kg) and most reps, oldest first. */

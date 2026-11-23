@@ -457,7 +457,7 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
       };
     }
     case "inbody": {
-      const scans = (await api.inbodyScans()) as InBodyScan[];
+      const scans = (await api.analysisScans()) as InBodyScan[];
       const s = (c: string) =>
         scans.filter((x) => x.values[c] != null).map((x) => ({ t: parseLocal(x.measured_at_local), v: toUnit(x.values[c], unit) }));
       const last = scans[scans.length - 1];

@@ -1,0 +1,39 @@
+{
+  "id": "arboleaf",
+  "name": "Arboleaf",
+  "models": ["CS10P", "CS20E", "CS10E", "CS10G", "CS10K", "CS20N"],
+  "notes": "Arboleaf body-composition scales use the Qingniu (QN-Scale) Bluetooth protocol. 8-electrode dual-frequency models send each limb and the trunk at 20 and 100 kHz plus the scale's own results; 4-electrode models send weight and one or two whole-body impedances. Close the Arboleaf app (or turn off its auto-sync) while weighing in over Bluetooth: the scale talks to one phone app at a time.",
+  "bluetooth": {
+    "protocol": "qn",
+    "names": ["QN-Scale", "QN-Scale1", "arboleaf"],
+    "user_key": 8,
+    "algorithm": 4,
+    "slot": 1,
+    "scrambled": null,
+    "result_ack": true,
+    "stored_records": true
+  },
+  "health_connect_packages": [],
+  "labels": {
+    "weight_kg": ["Weight"],
+    "bmi": ["BMI"],
+    "pbf": ["Body Fat", "Body Fat Rate", "Fat Rate"],
+    "body_fat_mass_kg": ["Fat Mass", "Body Fat Mass"],
+    "fat_free_mass_kg": ["Fat-free Body Weight", "Fat-free Mass", "Fat Free Mass", "Lean Body Mass"],
+    "muscle_mass_kg": ["Muscle Mass"],
+    "skeletal_muscle_pct": ["Skeletal Muscle", "Skeletal Muscle Rate"],
+    "body_water_pct": ["Body Water", "Water"],
+    "protein_pct": ["Protein"],
+    "bone_mass_kg": ["Bone Mass"],
+    "bmr_kcal": ["BMR", "Basal Metabolic Rate"],
+    "visceral_fat_level": ["Visceral Fat"],
+    "subcutaneous_fat_pct": ["Subcutaneous Fat"],
+    "metabolic_age": ["Metabolic Age", "Body Age"],
+    "heart_rate_bpm": ["Heart Rate"]
+  },
+  "field_notes": {
+    "muscle_mass_kg": "Arboleaf's \"Muscle Mass\" is soft lean mass (fat-free mass less bone), not skeletal muscle.",
+    "smm_kg": "Skeletal muscle % of body weight, as a mass.",
+    "fat_free_mass_kg": "Lean body mass % of body weight, as a mass (fat-free mass: it and body fat add up to the weight)."
+  }
+}

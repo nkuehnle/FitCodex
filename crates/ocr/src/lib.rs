@@ -2,6 +2,7 @@
 //! downloads them once into a folder, checked against known hashes; after that it works offline.
 
 pub mod inbody;
+pub mod labels;
 
 use std::io::Write;
 use std::path::Path;

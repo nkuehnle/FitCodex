@@ -1,0 +1,8 @@
+{
+  "id": "inbody",
+  "name": "InBody",
+  "models": ["InBody 570", "InBody 580", "InBody 770", "InBody 970"],
+  "notes": "Professional 8-electrode BIA. Result sheets (InBody 580 layout) are read with on-device OCR; LookinBody CSV exports import with a column mapping.",
+  "labels": {},
+  "field_notes": {}
+}

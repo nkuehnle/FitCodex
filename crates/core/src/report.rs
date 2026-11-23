@@ -279,7 +279,7 @@ impl Db {
             lines.push(format!("- {label}: {}{unit} to {}{unit}", n1(first * scale), n1(last * scale)));
         }
 
-        let scans = self.inbody_scans()?;
+        let scans = self.analysis_scans()?;
         if let Some(latest) = scans.last() {
             let previous = scans.len().checked_sub(2).map(|i| &scans[i]);
             let mut values = Vec::new();
@@ -291,7 +291,8 @@ impl Db {
             }
             if !values.is_empty() {
                 let since = previous.map(|s| format!(", compared with {}", &s.measured_at_local[..10])).unwrap_or_default();
-                lines.push(format!("- InBody scan {}{since}: {}", &latest.measured_at_local[..10], values.join(", ")));
+                let what = if latest.source() == crate::body::DEFAULT_SCAN_SOURCE { "InBody scan".to_string() } else { format!("Body-composition scan ({})", latest.device.as_deref().unwrap_or(latest.source())) };
+                lines.push(format!("- {what} {}{since}: {}", &latest.measured_at_local[..10], values.join(", ")));
             }
         }
         Ok((!lines.is_empty()).then(|| format!("## Body\n\n{}\n", lines.join("\n"))))

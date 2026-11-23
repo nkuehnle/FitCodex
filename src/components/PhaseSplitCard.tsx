@@ -25,7 +25,7 @@ export function PhaseSplitCard({ rows }: { rows: WeighInRow[] }) {
   useEffect(() => {
     const load = () => api.goalHistory().then(setGoals);
     load();
-    api.inbodyScans().then(setScans);
+    api.analysisScans().then(setScans);
     api.measurements().then(setMeasurements);
     Promise.all([api.getSetting("sex"), api.getSetting("height_cm")]).then(([sex, h]) =>
       setProfile({ sex: sex === "male" || sex === "female" ? sex : null, heightCm: Number(h) || null }),
@@ -87,7 +87,7 @@ export function PhaseSplitCard({ rows }: { rows: WeighInRow[] }) {
       ) : (
         <p className="muted small" style={{ marginBottom: 0 }}>
           {days < MIN_SPAN_DAYS && !g.end_date ? `This phase is ${days} days old. ` : "Not enough body-fat readings in this phase. "}
-          This needs two readings of the same kind at least 3 weeks apart: InBody scans, or waist and neck with a weigh-in the same week.{" "}
+          This needs two readings of the same kind at least 3 weeks apart: body-composition scans from one device, or waist and neck with a weigh-in the same week.{" "}
           {!g.end_date && (
             <>
               <a href="#/body/parts">Measure now</a> to have a starting point.

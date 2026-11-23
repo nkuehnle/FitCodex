@@ -21,10 +21,15 @@ export function BodyFatTab() {
   const [heightText, setHeightText] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [ages, setAges] = useState<number[]>([]);
+  /** Name of the device whose scans the analyses use ("InBody", "Arboleaf", …). */
+  const [scanLabel, setScanLabel] = useState("InBody");
   const inches = unit === "lb";
 
   useEffect(() => {
-    Promise.all([api.measurements(), api.inbodyScans(), api.weighIns(true)]).then(([m, scans, w]) => setData({ m, scans, w }));
+    Promise.all([api.measurements(), api.analysisScans(), api.weighIns(true)]).then(([m, scans, w]) => setData({ m, scans, w }));
+    Promise.all([api.bodyCompAnalysisSource(), api.scaleProfiles()]).then(([src, profiles]) =>
+      setScanLabel(profiles.find((p) => p.id === (src ?? "inbody"))?.name ?? src ?? "InBody"),
+    );
     api.getSetting("sex").then((s) => setSex(s === "male" || s === "female" ? s : null));
     api.getSetting("birth_year").then((y) => setBirthYear(y ?? ""));
     api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
@@ -70,7 +75,7 @@ export function BodyFatTab() {
   };
 
   const fat: Series[] = [
-    { id: "inbody", label: "InBody", points: s.measured },
+    { id: "inbody", label: scanLabel, points: s.measured },
     { id: "navy", label: "Navy (tape)", points: s.navy },
     { id: "rfm", label: "RFM (waist)", points: s.rfm },
     { id: "logged", label: "Logged", points: s.logged, style: "points" },
@@ -78,13 +83,13 @@ export function BodyFatTab() {
   const kg = (pts: Pt[]) => pts.map((p) => ({ t: p.t, v: toUnit(p.v, unit) }));
   const nonEmpty = (xs: Series[]) => xs.filter((x) => x.points.length);
   const lean = nonEmpty([
-    { id: "ffm", label: "Lean (InBody)", points: kg(s.leanMeasured) },
+    { id: "ffm", label: `Lean (${scanLabel})`, points: kg(s.leanMeasured) },
     { id: "lean", label: "Lean (estimate)", points: kg(s.leanEstimated) },
-    { id: "smm", label: "Muscle (InBody)", points: kg(s.smm) },
+    { id: "smm", label: `Muscle (${scanLabel})`, points: kg(s.smm) },
     { id: "smm-est", label: "Muscle (estimate)", points: kg(s.smmEstimated) },
   ]);
   const fatMass = nonEmpty([
-    { id: "bfm", label: "Fat mass (InBody)", points: kg(s.fatMeasured) },
+    { id: "bfm", label: `Fat mass (${scanLabel})`, points: kg(s.fatMeasured) },
     { id: "bfm-est", label: "Fat mass (estimate)", points: kg(s.fatEstimated) },
   ]);
   // Latest reading of each kind, and its change over that source's own dates (scans and tape
@@ -198,7 +203,7 @@ export function BodyFatTab() {
             <thead>
               <tr>
                 <th />
-                <th>InBody</th>
+                <th>{scanLabel}</th>
                 <th>Estimate</th>
               </tr>
             </thead>

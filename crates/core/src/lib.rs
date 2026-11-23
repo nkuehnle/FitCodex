@@ -18,6 +18,7 @@ pub mod report;
 pub mod response;
 pub mod review;
 pub mod routines;
+pub mod scales;
 pub mod stats;
 pub mod strong;
 pub mod targets;

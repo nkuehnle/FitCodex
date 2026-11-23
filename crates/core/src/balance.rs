@@ -183,7 +183,7 @@ impl Db {
             });
         }
         // InBody: the latest scan with both sides.
-        let scans = self.inbody_scans()?;
+        let scans = self.analysis_scans()?;
         for (label, l, r) in [("Arm lean mass", "lean_left_arm_kg", "lean_right_arm_kg"), ("Leg lean mass", "lean_left_leg_kg", "lean_right_leg_kg")] {
             let Some((scan, lv, rv)) = scans
                 .iter()

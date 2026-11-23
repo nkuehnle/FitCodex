@@ -23,6 +23,8 @@ use fitledger_core::units::{DistanceUnit, WeightUnit};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
+mod scales;
+
 struct AppState(Mutex<Db>);
 
 type CmdResult<T> = Result<T, String>;
@@ -1517,6 +1519,7 @@ pub fn run() {
         .plugin(rest_timer_plugin())
         .plugin(health_connect_plugin())
         .plugin(drive_plugin())
+        .plugin(scales::plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -1552,6 +1555,10 @@ pub fn run() {
             health_connect_sync, import_fit, day_health, fatigue,
             share_export, share_backup, share_png, save_png_to_photos, read_inbody_image, stage_backup,
             counts, get_setting, set_setting,
+            scales::scale_profiles, scales::analysis_scans, scales::save_scale_profile, scales::delete_scale_profile, scales::body_comp_analysis_source,
+            scales::set_body_comp_analysis_source, scales::merge_body_comp_scans, scales::bia_estimate, scales::read_body_comp_screenshot,
+            scales::scale_ble_scan, scales::scale_ble_connect, scales::scale_ble_pump, scales::scale_ble_disconnect, scales::scale_ble_log,
+            scales::scale_ble_replay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
