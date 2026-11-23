@@ -6,7 +6,7 @@ import { today } from "../charts/RangePicker";
 import { nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { isWeighDay, loadWeighInPlan, type WeighInPlan } from "../weighIn";
-import { QuickScaleButton } from "./ScaleTools";
+import { QuickScaleButton, useQuickScale } from "./ScaleTools";
 import { HEALTH_SYNCED } from "./WearablesCard";
 
 const KG_PER_LB = 0.45359237;
@@ -18,6 +18,8 @@ export function TodayCard() {
   const [rows, setRows] = useState<WeighInRow[] | null>(null);
   const [energy, setEnergy] = useState<EnergyPoint[]>([]);
   const [goal, setGoal] = useState<GoalInfo | null>(null);
+  // Settings › Scale: a Bluetooth scale replaces the typed weigh-in.
+  const scale = useQuickScale();
   const [plan, setPlan] = useState<WeighInPlan | null>(null);
   const [entry, setEntry] = useState("");
   const [days, setDays] = useState<DayHealth[]>([]);
@@ -129,6 +131,9 @@ export function TodayCard() {
           <span className={`small ${weighDay && !loggedToday ? "warn" : "muted"}`}>
             {loggedToday ? "Weighed in today ✓" : weighDay ? "Weigh-in day" : "Weigh-in"}
           </span>
+          {scale ? (
+            <QuickScaleButton onSaved={load} />
+          ) : (
           <div className="row tight">
             <input
               className="input small-input"
@@ -141,8 +146,8 @@ export function TodayCard() {
             <button className="button" disabled={!Number(entry)} onClick={add}>
               Log
             </button>
-            <QuickScaleButton label="⚖" onSaved={load} />
           </div>
+          )}
         </div>
       </div>
       {recovery && <div className="small muted today-recovery">{recovery}</div>}

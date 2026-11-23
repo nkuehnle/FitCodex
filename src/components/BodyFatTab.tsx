@@ -21,15 +21,10 @@ export function BodyFatTab() {
   const [heightText, setHeightText] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [ages, setAges] = useState<number[]>([]);
-  /** Name of the device whose scans the analyses use ("InBody", "Arboleaf", …). */
-  const [scanLabel, setScanLabel] = useState("InBody");
   const inches = unit === "lb";
 
   useEffect(() => {
     Promise.all([api.measurements(), api.analysisScans(), api.weighIns(true)]).then(([m, scans, w]) => setData({ m, scans, w }));
-    Promise.all([api.bodyCompAnalysisSource(), api.scaleProfiles()]).then(([src, profiles]) =>
-      setScanLabel(profiles.find((p) => p.id === (src ?? "inbody"))?.name ?? src ?? "InBody"),
-    );
     api.getSetting("sex").then((s) => setSex(s === "male" || s === "female" ? s : null));
     api.getSetting("birth_year").then((y) => setBirthYear(y ?? ""));
     api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
@@ -75,7 +70,7 @@ export function BodyFatTab() {
   };
 
   const fat: Series[] = [
-    { id: "inbody", label: scanLabel, points: s.measured },
+    { id: "inbody", label: "Scans", points: s.measured },
     { id: "navy", label: "Navy (tape)", points: s.navy },
     { id: "rfm", label: "RFM (waist)", points: s.rfm },
     { id: "logged", label: "Logged", points: s.logged, style: "points" },
@@ -83,13 +78,13 @@ export function BodyFatTab() {
   const kg = (pts: Pt[]) => pts.map((p) => ({ t: p.t, v: toUnit(p.v, unit) }));
   const nonEmpty = (xs: Series[]) => xs.filter((x) => x.points.length);
   const lean = nonEmpty([
-    { id: "ffm", label: `Lean (${scanLabel})`, points: kg(s.leanMeasured) },
+    { id: "ffm", label: "Lean (scans)", points: kg(s.leanMeasured) },
     { id: "lean", label: "Lean (estimate)", points: kg(s.leanEstimated) },
-    { id: "smm", label: `Muscle (${scanLabel})`, points: kg(s.smm) },
+    { id: "smm", label: "Muscle (scans)", points: kg(s.smm) },
     { id: "smm-est", label: "Muscle (estimate)", points: kg(s.smmEstimated) },
   ]);
   const fatMass = nonEmpty([
-    { id: "bfm", label: `Fat mass (${scanLabel})`, points: kg(s.fatMeasured) },
+    { id: "bfm", label: "Fat mass (scans)", points: kg(s.fatMeasured) },
     { id: "bfm-est", label: "Fat mass (estimate)", points: kg(s.fatEstimated) },
   ]);
   // Latest reading of each kind, and its change over that source's own dates (scans and tape
@@ -176,8 +171,8 @@ export function BodyFatTab() {
         ) : (
           <p className="muted small">
             {needsProfile
-              ? "Set sex and height above, then log waist and neck under Body parts (or add an InBody scan)."
-              : "Log waist and neck under Body parts, or add an InBody scan."}
+              ? "Set sex and height above, then log waist and neck under Body parts (or add a body-composition scan)."
+              : "Log waist and neck under Body parts, or add a body-composition scan."}
           </p>
         )}
       </section>
@@ -188,7 +183,7 @@ export function BodyFatTab() {
             <Standing key={c.metric} {...c} who={who} />
           ))}
           <p className="muted small">
-            Against US adults of your sex and {ages.length ? "chosen age groups" : "age"}, measured by DXA scan. InBody and tape estimates read differently from DXA (often a few
+            Against US adults of your sex and {ages.length ? "chosen age groups" : "age"}, measured by DXA scan. Scale and tape estimates read differently from DXA (often a few
             points lower body fat), so treat these as a rough guide.
           </p>
         </section>
@@ -203,7 +198,7 @@ export function BodyFatTab() {
             <thead>
               <tr>
                 <th />
-                <th>{scanLabel}</th>
+                <th>Scans</th>
                 <th>Estimate</th>
               </tr>
             </thead>
@@ -236,7 +231,7 @@ export function BodyFatTab() {
       <p className="muted small">
         Estimates use your weight at each tape measurement: lean = weight × (1 − body fat %), fat = weight × body fat %, and
         muscle = lean × {Math.round(s.muscleShare * 100)} %
-        {s.muscleShareFromScans ? " (your skeletal muscle share of lean mass on your InBody scans)" : " (a typical share; an InBody scan calibrates it)"}.
+        {s.muscleShareFromScans ? " (your skeletal muscle share of lean mass on your scans)" : " (a typical share; a scan calibrates it)"}.
         Lean mass includes water and glycogen, so expect noise.
       </p>
     </>
@@ -266,7 +261,7 @@ function comparisons(scans: InBodyScan[], s: ReturnType<typeof bodyFatSeries>, h
       label: "Body fat",
       values: ends(pbf.map((p) => p.v)),
       show: (v: number) => `${v.toFixed(1)} %`,
-      note: s.measured.length ? "From your InBody scans." : "From your Navy tape estimates.",
+      note: s.measured.length ? "From your scans." : "From your Navy tape estimates.",
     },
     {
       metric: "fmi",
@@ -284,7 +279,7 @@ function comparisons(scans: InBodyScan[], s: ReturnType<typeof bodyFatSeries>, h
         return ffm ? (ffm * (1 - BONE_SHARE)) / h2 : null;
       }),
       show: index,
-      note: "Lean mass without bone ÷ height², to match DXA: your InBody fat-free mass less about 4.5 % for bone.",
+      note: "Lean mass without bone ÷ height², to match DXA: your scans' fat-free mass less about 4.5 % for bone.",
     },
     {
       metric: "almi",

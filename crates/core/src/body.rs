@@ -394,47 +394,10 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The scans analyses use (body fat trends, muscle growth, left/right balance, reports): one
-    /// source only, since different BIA devices don't agree with each other. That's the source chosen
-    /// on the Body comp page, else the one with the most scans (InBody on a tie).
+    /// The scans analyses use (body fat trends, muscle growth, left/right balance, reports): every
+    /// device's, oldest first.
     pub fn analysis_scans(&self) -> Result<Vec<InBodyScan>> {
-        let scans = self.inbody_scans()?;
-        let source = self.analysis_source_of(&scans)?;
-        Ok(scans.into_iter().filter(|s| Some(s.source()) == source.as_deref()).collect())
-    }
-
-    /// See `analysis_scans`; `None` without any scans.
-    pub fn analysis_source(&self) -> Result<Option<String>> {
-        let scans = self.inbody_scans()?;
-        self.analysis_source_of(&scans)
-    }
-
-    fn analysis_source_of(&self, scans: &[InBodyScan]) -> Result<Option<String>> {
-        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for s in scans {
-            *counts.entry(s.source()).or_default() += 1;
-        }
-        if let Some(chosen) = self.setting("body_comp_analysis_source")? {
-            if counts.contains_key(chosen.as_str()) {
-                return Ok(Some(chosen));
-            }
-        }
-        Ok(counts
-            .iter()
-            .max_by_key(|(src, n)| (**n, **src == DEFAULT_SCAN_SOURCE))
-            .map(|(src, _)| src.to_string()))
-    }
-
-    /// Picks the source analyses use; `None` goes back to automatic.
-    pub fn set_analysis_source(&mut self, source: Option<&str>) -> Result<()> {
-        match source {
-            Some(s) if valid_source(s) => self.set_setting("body_comp_analysis_source", s),
-            Some(s) => Err(Error::Format(format!("bad source {s:?}"))),
-            None => {
-                self.conn().execute("DELETE FROM setting WHERE key = 'body_comp_analysis_source'", [])?;
-                Ok(())
-            }
-        }
+        self.inbody_scans()
     }
 
     /// Inserts or replaces a scan (matched by id, else by date/time).
@@ -798,15 +761,8 @@ mod tests {
         let w = db.weigh_ins(false).unwrap();
         assert_eq!((w.len(), w[0].source.as_str(), w[0].weight_kg), (1, "arboleaf", 79.5));
         assert_eq!(db.weigh_ins(true).unwrap().len(), 2);
-        // Analyses use one source: the most scans, InBody on a tie, or the chosen one.
-        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("inbody"));
-        db.merge_body_comp_scan(&scan("2026-11-02 07:00:00", "arboleaf", &[("weight_kg", 79.4)])).unwrap();
-        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("arboleaf"));
-        db.set_analysis_source(Some("inbody")).unwrap();
-        assert!(db.analysis_scans().unwrap().iter().all(|s| s.source() == "inbody"));
-        assert!(db.set_analysis_source(Some("Not Valid")).is_err());
-        db.set_analysis_source(None).unwrap();
-        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("arboleaf"));
+        // Analyses use every device's scans.
+        assert_eq!(db.analysis_scans().unwrap().len(), 2);
     }
 
     #[test]

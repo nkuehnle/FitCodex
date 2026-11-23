@@ -992,8 +992,6 @@ export const api = {
   inbodyScans: () => invoke<InBodyScan[]>("inbody_scans"),
   /** Scans from the one source analyses use (body fat trends, balance, reports). */
   analysisScans: () => invoke<InBodyScan[]>("analysis_scans"),
-  bodyCompAnalysisSource: () => invoke<string | null>("body_comp_analysis_source"),
-  setBodyCompAnalysisSource: (source: string | null) => invoke<void>("set_body_comp_analysis_source", { source }),
   scaleProfiles: () => invoke<ScaleProfile[]>("scale_profiles"),
   saveScaleProfile: (json: string) => invoke<ScaleProfile>("save_scale_profile", { json }),
   deleteScaleProfile: (id: string) => invoke<void>("delete_scale_profile", { id }),
@@ -1010,7 +1008,8 @@ export const api = {
       "read_body_comp_screenshot",
       { data, profile, massUnit },
     ),
-  scaleBleScan: (profile: string) => invoke<{ devices: ScaleDevice[]; others?: ScaleDevice[] }>("scale_ble_scan", { profile }),
+  scaleBleScan: (profile: string, address?: string | null) =>
+    invoke<{ devices: ScaleDevice[]; others?: ScaleDevice[] }>("scale_ble_scan", { profile, address: address ?? null }),
   scaleBleConnect: (profile: string, address: string, massUnit: "kg" | "lb") =>
     invoke<void>("scale_ble_connect", { profile, address, massUnit }),
   scaleBlePump: () => invoke<ScalePump>("scale_ble_pump"),

@@ -1567,8 +1567,8 @@ pub fn run() {
             health_connect_sync, import_fit, day_health, fatigue,
             share_export, share_backup, share_png, save_png_to_photos, read_inbody_image, stage_backup,
             counts, get_setting, set_setting,
-            scales::scale_profiles, scales::analysis_scans, scales::save_scale_profile, scales::delete_scale_profile, scales::body_comp_analysis_source,
-            scales::set_body_comp_analysis_source, scales::merge_body_comp_scans, scales::bia_estimate, scales::read_body_comp_screenshot,
+            scales::scale_profiles, scales::analysis_scans, scales::save_scale_profile, scales::delete_scale_profile,
+            scales::merge_body_comp_scans, scales::bia_estimate, scales::read_body_comp_screenshot,
             scales::scale_ble_scan, scales::scale_ble_connect, scales::scale_ble_pump, scales::scale_ble_disconnect, scales::scale_ble_log,
             scales::scale_ble_replay, scales::pending_weigh_ins, scales::resolve_pending_weigh_in, scales::weigh_in_doubt,
         ])

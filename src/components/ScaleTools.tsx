@@ -36,51 +36,261 @@ function ValuesTable({ scan, fields, unit }: { scan: InBodyScan; fields: InBodyF
   );
 }
 
-// ---- Bluetooth weigh-in ----------------------------------------------------------------------------
-
 // ---- Quick weigh-in ---------------------------------------------------------------------------------
 
-/** Setting: the scale profile the quick Scale button weighs in on (empty: type the weight in). */
+/** Setting: the scale profile the quick weigh-in button uses (empty: type the weight in). */
 export const QUICK_WEIGH_IN_KEY = "quick_weigh_in";
+/** Settings per scale profile: the scale this phone weighs in on, and your user number on it. */
+const addressKey = (profile: string) => `scale_address.${profile}`;
+const slotKey = (profile: string) => `scale_slot.${profile}`;
 
-/** One-tap Bluetooth weigh-in on the scale chosen in Settings (Android); nothing otherwise. */
-export function QuickScaleButton({ onSaved, label = "⚖ Scale" }: { onSaved: (msg: string) => void; label?: string }) {
-  const { unit } = usePrefs();
-  const [profile, setProfile] = useState<ScaleProfile | null>(null);
-  const [fields, setFields] = useState<InBodyField[] | null>(null);
-  const [open, setOpen] = useState(false);
+/** The profile id the weigh-in button uses ("" to type it in). Never chosen: a Bluetooth scale
+ *  you've weighed in on. */
+async function quickScaleId(ps: ScaleProfile[]): Promise<string> {
+  const v = await api.getSetting(QUICK_WEIGH_IN_KEY);
+  if (v != null) return v;
+  const used = new Set((await api.inbodyScans()).map((s) => s.source));
+  return ps.find((p) => p.bluetooth && used.has(p.id))?.id ?? "";
+}
+
+/** The Bluetooth scale chosen for quick weigh-ins (Android): undefined while loading, null for
+ *  "type it in". */
+export function useQuickScale(): ScaleProfile | null | undefined {
+  const [p, setP] = useState<ScaleProfile | null | undefined>(IS_ANDROID ? undefined : null);
   useEffect(() => {
     if (!IS_ANDROID) return;
-    Promise.all([api.getSetting(QUICK_WEIGH_IN_KEY), api.scaleProfiles()])
-      .then(([id, ps]) => setProfile(ps.find((p) => p.id === id && p.bluetooth) ?? null))
-      .catch(() => {});
+    api
+      .scaleProfiles()
+      .then(async (ps) => {
+        const id = await quickScaleId(ps);
+        setP(ps.find((x) => x.id === id && x.bluetooth) ?? null);
+      })
+      .catch(() => setP(null));
   }, []);
+  return p;
+}
+
+/** One-tap Bluetooth weigh-in on the scale chosen in Settings; nothing when weigh-ins are typed in. */
+export function QuickScaleButton({ onSaved, label = "⚖ Weigh in" }: { onSaved: (msg: string) => void; label?: string }) {
+  const profile = useQuickScale();
+  const [open, setOpen] = useState(false);
   if (!profile) return null;
   return (
     <>
-      <button
-        className="button"
-        title={`Weigh in on the ${profile.name} scale`}
-        onClick={() => {
-          api.inbodyFields().then(setFields);
-          setOpen(true);
-        }}
-      >
+      <button className="button" title={`Weigh in on the ${profile.name} scale`} onClick={() => setOpen(true)}>
         {label}
       </button>
-      {open && fields && (
-        <BluetoothWeighIn
-          profile={profile}
-          fields={fields}
-          unit={unit}
-          onClose={() => setOpen(false)}
-          onSaved={(m) => {
-            setOpen(false);
-            onSaved(m);
+      {open && <BluetoothWeighIn profile={profile} onClose={() => setOpen(false)} onSaved={onSaved} />}
+    </>
+  );
+}
+
+// ---- Scale settings -----------------------------------------------------------------------------
+
+/** Settings › Scale: what the weigh-in button does, which scale this phone uses, your user number
+ *  on it, and the scale profiles. */
+export function ScaleSettings() {
+  const { unit } = usePrefs();
+  const [profiles, setProfiles] = useState<ScaleProfile[]>([]);
+  const [fields, setFields] = useState<InBodyField[]>([]);
+  const [quick, setQuick] = useState<string | null>(null);
+  const [address, setAddress] = useState<string | null>(null);
+  const [slot, setSlot] = useState(1);
+  const [setup, setSetup] = useState(false);
+  const [showProfiles, setShowProfiles] = useState(false);
+  const loadProfiles = () => api.scaleProfiles().then(setProfiles);
+  useEffect(() => {
+    api.scaleProfiles().then(async (ps) => {
+      setProfiles(ps);
+      setQuick(await quickScaleId(ps));
+    });
+    api.inbodyFields().then(setFields);
+  }, []);
+  const scale = profiles.find((p) => p.id === quick && p.bluetooth);
+  useEffect(() => {
+    if (!scale) return;
+    api.getSetting(addressKey(scale.id)).then(setAddress);
+    api.getSetting(slotKey(scale.id)).then((v) => setSlot(Number(v) || scale.bluetooth?.slot || 1));
+  }, [scale?.id]);
+  const bluetooth = profiles.filter((p) => p.bluetooth);
+
+  return (
+    <section className="card">
+      <h2 className="section-title">Scale</h2>
+      {IS_ANDROID && quick !== null && bluetooth.length > 0 && (
+        <label className="row small">
+          Weigh-in button
+          <select
+            className="select inline"
+            value={quick}
+            onChange={(e) => {
+              setQuick(e.target.value);
+              api.setSetting(QUICK_WEIGH_IN_KEY, e.target.value);
+            }}
+          >
+            <option value="">Type it in</option>
+            {bluetooth.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} scale (Bluetooth)
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {IS_ANDROID && scale && (
+        <>
+          <p className="row small">
+            {address ? `This phone uses the ${scale.name} scale ${address}.` : "No scale set up yet: the first one found when you weigh in is kept."}
+            <button className="button small" onClick={() => setSetup(true)}>
+              {address ? "Change" : "Set up scale"}
+            </button>
+            {address && (
+              <button
+                className="button small"
+                onClick={() => {
+                  api.setSetting(addressKey(scale.id), "");
+                  setAddress(null);
+                }}
+              >
+                Forget
+              </button>
+            )}
+          </p>
+          <label className="row small">
+            You are user
+            <select
+              className="select inline"
+              value={slot}
+              onChange={(e) => {
+                setSlot(Number(e.target.value));
+                api.setSetting(slotKey(scale.id), e.target.value);
+              }}
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            on it
+          </label>
+          <p className="muted small">
+            Sharing the scale? Everyone picks a different number on their own phone. User 1 is the first user in the {scale.name} app; on
+            many models only user 1 gets the scale's own body composition.
+          </p>
+        </>
+      )}
+      <p className="row small muted">
+        Scale profiles say what each scale or app reports and how to talk to it.
+        <button className="button small" onClick={() => setShowProfiles(true)}>
+          Scale profiles
+        </button>
+      </p>
+      {setup && scale && (
+        <ScaleSetup
+          profile={scale}
+          onClose={() => setSetup(false)}
+          onDone={(a) => {
+            setAddress(a);
+            setSetup(false);
           }}
         />
       )}
+      {showProfiles && (
+        <ScaleProfilesModal profiles={profiles} fields={fields} unit={unit} onChanged={loadProfiles} onClose={() => setShowProfiles(false)} />
+      )}
+    </section>
+  );
+}
+
+/** Nearby scales (and, folded, other Bluetooth devices) to pick from. */
+function DeviceList({ devices, others, onPick }: { devices: ScaleDevice[]; others: ScaleDevice[]; onPick: (d: ScaleDevice) => void }) {
+  const row = (d: ScaleDevice) => (
+    <div key={d.address} className="start-row" onClick={() => onPick(d)}>
+      <span>
+        {d.name || "Unnamed"} <span className="muted small">{d.address}</span>
+      </span>
+      <span className="muted">Use ›</span>
+    </div>
+  );
+  return (
+    <>
+      {devices.map(row)}
+      {others.length > 0 && (
+        <details className="small">
+          <summary>Other Bluetooth devices nearby ({others.length})</summary>
+          <p className="muted">If your scale is one of these (it shows only while awake), pick it here.</p>
+          {others.map(row)}
+        </details>
+      )}
     </>
+  );
+}
+
+/** Finds the scale and connects once, without weighing in, to keep it for this phone. */
+function ScaleSetup({ profile, onClose, onDone }: { profile: ScaleProfile; onClose: () => void; onDone: (address: string) => void }) {
+  const [found, setFound] = useState<{ devices: ScaleDevice[]; others: ScaleDevice[] } | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+  const scan = () => {
+    setFound(null);
+    setError(null);
+    api
+      .scaleBleScan(profile.id)
+      .then((r) => setFound({ devices: r.devices, others: r.others ?? [] }))
+      .catch((e) => {
+        setError(String(e));
+        setFound({ devices: [], others: [] });
+      });
+  };
+  useEffect(() => {
+    scan();
+    return () => {
+      alive.current = false;
+      api.scaleBleDisconnect().catch(() => {});
+    };
+  }, []);
+  const pick = async (d: ScaleDevice) => {
+    setError(null);
+    setStatus(`Connecting to ${d.name || d.address}…`);
+    try {
+      await api.scaleBleConnect(profile.id, d.address, "kg");
+      for (let i = 0; i < 75 && alive.current; i++) {
+        const p = await api.scaleBlePump();
+        if (p.state === "ready") {
+          await api.setSetting(addressKey(profile.id), d.address);
+          await api.scaleBleDisconnect();
+          return onDone(d.address);
+        }
+        if (p.state === "closed") throw new Error(p.error ?? "the scale disconnected");
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error("no answer from the scale");
+    } catch (e) {
+      api.scaleBleDisconnect().catch(() => {});
+      setStatus(null);
+      setError(`Couldn't connect (${e instanceof Error ? e.message : e}). Wake the scale and try again.`);
+    }
+  };
+  return (
+    <Modal title={`Set up your ${profile.name} scale`} onClose={onClose}>
+      <p className="small">Wake the scale (tap it or step on it), and close the {profile.name} app. Nothing is weighed or saved.</p>
+      {status ? (
+        <p className="small">{status}</p>
+      ) : found ? (
+        <>
+          {!found.devices.length && <p className="small">No scale found yet.</p>}
+          <DeviceList devices={found.devices} others={found.others} onPick={pick} />
+          <button className="button" onClick={scan}>
+            Search again
+          </button>
+        </>
+      ) : (
+        <p className="small">Looking for the scale…</p>
+      )}
+      {error && <p className="error">{error}</p>}
+    </Modal>
   );
 }
 
@@ -132,58 +342,66 @@ export function PendingWeighIns({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-/** Weigh in on a Bluetooth scale (Android): find it, connect, step on, save. It listens only while
- *  this is open. Weigh-ins the scale kept from while no phone was connected go to the
- *  weigh-ins-to-check list, since anyone in the household may have taken them. */
-export function BluetoothWeighIn({
-  profile,
-  fields,
-  unit,
-  onClose,
-  onSaved,
-}: {
-  profile: ScaleProfile;
-  fields: InBodyField[];
-  unit: "kg" | "lb";
-  onClose: () => void;
-  onSaved: (msg: string) => void;
-}) {
-  const [devices, setDevices] = useState<ScaleDevice[] | null>(null);
-  const [others, setOthers] = useState<ScaleDevice[]>([]);
-  const [phase, setPhase] = useState<"scan" | "pick" | "connecting" | "ready" | "done" | "closed">("scan");
+/** Weigh in on a Bluetooth scale (Android): finds the scale this phone uses (the first one found
+ *  becomes it), connects, and saves the weigh-in when it's done; one that may be someone else's waits
+ *  for "That's me". It listens only while this is open. Weigh-ins the scale kept from while no phone
+ *  was connected are held for checking (see `PendingWeighIns`). */
+export function BluetoothWeighIn({ profile, onClose, onSaved }: { profile: ScaleProfile; onClose: () => void; onSaved: (msg: string) => void }) {
+  const { unit } = usePrefs();
+  const [fields, setFields] = useState<InBodyField[]>([]);
+  const [phase, setPhase] = useState<"search" | "pick" | "connecting" | "ready" | "done" | "closed">("search");
+  const [found, setFound] = useState<{ devices: ScaleDevice[]; others: ScaleDevice[] }>({ devices: [], others: [] });
   const [live, setLive] = useState<{ kg: number; stable: boolean } | null>(null);
   const [reading, setReading] = useState<InBodyScan | null>(null);
+  const [saved, setSaved] = useState(false);
   const [doubt, setDoubt] = useState<string | null>(null);
   const [held, setHeld] = useState(0);
-  const slotKey = `scale_slot.${profile.id}`;
-  const [slot, setSlot] = useState<number | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
+  const alive = useRef(true);
+  const heldRef = useRef(0);
 
-  const scan = () => {
-    setPhase("scan");
+  const search = async (tries = 0): Promise<void> => {
+    if (!alive.current) return;
+    setPhase("search");
     setError(null);
-    api
-      .scaleBleScan(profile.id)
-      .then((r) => {
-        setDevices(r.devices);
-        setOthers(r.others ?? []);
-        setPhase("pick");
-      })
-      .catch((e) => {
-        setError(String(e));
-        setPhase("pick");
-      });
+    const remembered = (await api.getSetting(addressKey(profile.id)).catch(() => null)) || null;
+    try {
+      const r = await api.scaleBleScan(profile.id, remembered);
+      if (!alive.current) return;
+      const all = [...r.devices, ...(r.others ?? [])];
+      const mine = remembered ? all.find((d) => d.address.toLowerCase() === remembered.toLowerCase()) : r.devices.length === 1 ? r.devices[0] : undefined;
+      if (mine) return connect(mine);
+      setFound({ devices: r.devices, others: r.others ?? [] });
+      // Keep looking a while: the scale shows up once it's woken.
+      if ((remembered || !r.devices.length) && tries < 2) return search(tries + 1);
+      setPhase("pick");
+    } catch (e) {
+      setError(String(e));
+      setPhase("pick");
+    }
   };
   useEffect(() => {
-    api.getSetting(slotKey).then((v) => setSlot(Number(v) || profile.bluetooth?.slot || 1));
-    scan();
+    api.inbodyFields().then(setFields);
+    search();
     return () => {
+      alive.current = false;
       if (timer.current) window.clearInterval(timer.current);
       api.scaleBleDisconnect().catch(() => {});
     };
   }, []);
+
+  async function save(r: InBodyScan) {
+    try {
+      await api.mergeBodyCompScans([r]);
+      setSaved(true);
+      const n = heldRef.current;
+      onSaved(`Saved your weigh-in from the ${profile.name} scale.` + (n ? ` ${n} earlier weigh-in${n > 1 ? "s are" : " is"} waiting for you to check.` : ""));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   const connect = async (d: ScaleDevice) => {
     setError(null);
@@ -196,6 +414,7 @@ export function BluetoothWeighIn({
       return;
     }
     let busy = false;
+    let kept = false;
     timer.current = window.setInterval(async () => {
       if (busy) return;
       busy = true;
@@ -204,12 +423,22 @@ export function BluetoothWeighIn({
         if (p.error) setError(p.error);
         if (p.notes.length) setNotes((n) => [...n, ...p.notes]);
         if (p.live_weight_kg != null) setLive({ kg: p.live_weight_kg, stable: p.stable });
-        if (p.held) setHeld((n) => n + p.held);
+        if (p.held) {
+          heldRef.current += p.held;
+          setHeld(heldRef.current);
+        }
+        if (p.state === "ready" && !kept) {
+          // This phone's scale from now on.
+          kept = true;
+          api.setSetting(addressKey(profile.id), d.address).catch(() => {});
+        }
         if (p.readings.length) {
           const r = p.readings[p.readings.length - 1];
           setReading(r);
           setPhase("done");
-          api.weighInDoubt(r.measured_at_local, r.values.weight_kg).then(setDoubt).catch(() => {});
+          const why = await api.weighInDoubt(r.measured_at_local, r.values.weight_kg).catch(() => null);
+          setDoubt(why);
+          if (!why) save(r);
         } else if (p.state === "ready") setPhase((x) => (x === "connecting" ? "ready" : x));
         else if (p.state === "closed") setPhase((x) => (x === "done" ? x : "closed"));
       } catch (e) {
@@ -220,19 +449,6 @@ export function BluetoothWeighIn({
     }, 200);
   };
 
-  async function save(scans: InBodyScan[]) {
-    try {
-      const r = await api.mergeBodyCompScans(scans);
-      const added = r.inserted + r.merged;
-      onSaved(
-        (added ? `Saved your weigh-in from the ${profile.name} scale.` : "Already saved.") +
-          (held ? ` ${held} earlier weigh-in${held > 1 ? "s are" : " is"} waiting for you to check.` : ""),
-      );
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
   const stop = () => {
     if (timer.current) window.clearInterval(timer.current);
     timer.current = null;
@@ -240,140 +456,85 @@ export function BluetoothWeighIn({
     onClose();
   };
 
-  const chooseSlot = (n: number) => {
-    setSlot(n);
-    api.setSetting(slotKey, String(n));
-  };
-
   const shareLog = async () => {
     try {
       const log = await api.scaleBleLog();
-      if (!log) return setError("Nothing captured yet: search for the scale first.");
+      if (!log) return setError("Nothing captured yet.");
       await saveOrShareText(`fitledger-${profile.id}-capture.txt`, "text/plain", log);
     } catch (e) {
       setError(String(e));
     }
   };
+  const kg = (v: number) => `${toUnit(v, unit).toFixed(1)} ${unit}`;
+  const shown = reading?.values.weight_kg ?? live?.kg;
 
   return (
-    <Modal title={`Weigh in: ${profile.name}`} onClose={onClose} wide>
-      {(phase === "scan" || phase === "pick") && slot !== null && (
-        <label className="row small">
-          You are user
-          <select className="select inline" value={slot} onChange={(e) => chooseSlot(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          on this scale
-        </label>
-      )}
-      {(phase === "scan" || phase === "pick") && (
-        <>
-          <p className="muted small">
-            Sharing the scale? Everyone picks a different number in FitLedger on their own phone, so the scale keeps your weigh-ins
-            apart. User 1 is the first user in the {profile.name} app: on many models only user 1 gets the scale's own body
-            composition, and everyone else gets their weight. The scale works out body composition from your height, age and sex, so
-            only weigh in while it's connected to your own phone.
-          </p>
-          <details className="small">
-            <summary>First time with this scale?</summary>
-            <ol>
-              <li>
-                Set the scale up once in the {profile.name} app, with you as its first user and the same birth date, height and sex
-                as in FitLedger. That registers you on the scale.
-              </li>
-              <li>
-                Close the {profile.name} app: the scale talks to one app at a time, and the app can keep syncing in the background,
-                so if the scale isn't found, force stop it (long-press its icon › App info › Force stop). No pairing in Android's
-                Bluetooth settings is needed.
-              </li>
-              <li>Step on barefoot to wake the scale, pick it in the list, and stay on until body composition finishes (about 15 s after the weight settles).</li>
-              <li>
-                Only your weight comes through? Under Scale profiles, edit a copy of {profile.name} and try "user_key": 8 instead of
-                1000. Still stuck: Share capture log below.
-              </li>
-            </ol>
-          </details>
-        </>
-      )}
-      {phase === "scan" && <p className="small">Looking for the scale… step on it briefly to wake it up.</p>}
+    <Modal title="Weigh in" onClose={stop}>
+      {phase === "search" && <p className="small">Looking for your {profile.name} scale… step on it to wake it.</p>}
       {phase === "pick" && (
         <>
-          {devices?.length ? (
-            devices.map((d) => (
-              <div key={d.address} className="start-row" onClick={() => connect(d)}>
-                <span>
-                  {d.name || "Unnamed scale"} <span className="muted small">{d.address}</span>
-                </span>
-                <span className="muted">Connect ›</span>
-              </div>
-            ))
-          ) : (
-            <p className="small">
-              No scale found. Step on it to wake it (it shows a weight), force stop the {profile.name} app, then search again while
-              standing on it.
-            </p>
-          )}
-          {others.length > 0 && (
-            <details className="small">
-              <summary>Other Bluetooth devices nearby ({others.length})</summary>
-              <p className="muted">If your scale is one of these (it appears only while awake), connect to it here.</p>
-              {others.map((d) => (
-                <div key={d.address} className="start-row" onClick={() => connect(d)}>
-                  <span>
-                    {d.name || "Unnamed"} <span className="muted">{d.address}</span>
-                  </span>
-                  <span className="muted">Connect ›</span>
-                </div>
-              ))}
-            </details>
-          )}
-          <button className="button" onClick={scan}>
+          <p className="small">
+            {found.devices.length ? "Which one is your scale? It's kept for next time." : "No scale found. Step on it to wake it, close the " + profile.name + " app, then search again."}
+          </p>
+          <DeviceList devices={found.devices} others={found.others} onPick={connect} />
+          <button className="button" onClick={() => search()}>
             Search again
           </button>
         </>
       )}
-      {(phase === "connecting" || phase === "ready") && (
+      {phase !== "search" && phase !== "pick" && (
         <div className="stat">
-          <div className="stat-value">{live ? `${toUnit(live.kg, unit).toFixed(1)} ${unit}` : "—"}</div>
+          <div className="stat-value">{shown != null ? kg(shown) : "—"}</div>
           <div className="stat-label">
             {phase === "connecting"
               ? "Connecting…"
-              : live?.stable
-                ? "Hold still: measuring body composition (barefoot, hands on the handle)…"
-                : "Step on barefoot and hold the handle."}
+              : phase === "done"
+                ? saved
+                  ? "Saved ✓"
+                  : doubt
+                    ? "Was this you?"
+                    : "Saving…"
+                : phase === "closed"
+                  ? "The scale disconnected before a result came through."
+                  : live?.stable
+                    ? "Hold still: measuring body composition…"
+                    : "Step on barefoot."}
           </div>
         </div>
       )}
-      {phase === "closed" && !reading && <p className="warn small">The scale disconnected before a result came through.</p>}
       {reading && (
         <>
-          <p className="success small">
-            {formatDate(reading.measured_at_local)} {formatTime(reading.measured_at_local)}
+          <p className="small muted">
+            {[
+              reading.values.pbf != null && `${reading.values.pbf}% fat`,
+              reading.values.smm_kg != null && `skeletal muscle ${kg(reading.values.smm_kg)}`,
+              reading.values.body_water_pct != null && `water ${reading.values.body_water_pct}%`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
-          {doubt && (
-            <p className="warn small">
-              {doubt.replace(/(-?\d+\.\d) kg/g, (_, kg) => `${toUnit(Number(kg), unit).toFixed(1)} ${unit}`)}. Was this you?
-            </p>
+          {doubt && !saved && (
+            <>
+              <p className="warn small">{doubt.replace(/(-?\d+\.\d) kg/g, (_, v) => kg(Number(v)))}.</p>
+              <div className="row">
+                <button className="button primary" onClick={() => save(reading)}>
+                  That's me
+                </button>
+                <button className="button" onClick={stop}>
+                  Not me
+                </button>
+              </div>
+            </>
           )}
-          <ValuesTable scan={reading} fields={fields} unit={unit} />
-          <div className="row">
-            <button className="button primary" onClick={() => save([reading])}>
-              Save: that's me
-            </button>
-            <button className="button" onClick={stop}>
-              Not me
-            </button>
-          </div>
+          <details className="small">
+            <summary>All values</summary>
+            <ValuesTable scan={reading} fields={fields} unit={unit} />
+          </details>
         </>
       )}
       {held > 0 && (
         <p className="small">
-          The scale also sent {held} weigh-in{held > 1 ? "s" : ""} it kept while no phone was connected. They wait under Measure for
-          you to say which are yours.
+          The scale also sent {held} weigh-in{held > 1 ? "s" : ""} from while no phone was connected; check them under Measure.
         </p>
       )}
       {notes.map((n, i) => (
@@ -382,21 +543,32 @@ export function BluetoothWeighIn({
         </p>
       ))}
       {error && <p className="error">{error}</p>}
-      {phase !== "scan" && phase !== "pick" && (
-        <p className="row small muted">
-          FitLedger listens to the scale only while this window is open.
-          <button className="button small" onClick={stop}>
-            Stop listening
+      <div className="row">
+        <button className={`button${saved ? " primary" : ""}`} onClick={stop}>
+          {saved ? "Done" : "Cancel"}
+        </button>
+      </div>
+      <details className="small">
+        <summary>Help</summary>
+        <ol>
+          <li>
+            Set the scale up once in the {profile.name} app, with you as its first user and the same birth date, height and sex as in
+            FitLedger.
+          </li>
+          <li>
+            Close the {profile.name} app; if the scale isn't found, force stop it (long-press its icon › App info › Force stop). No
+            pairing in Android's Bluetooth settings is needed.
+          </li>
+          <li>Stay on, barefoot, until body composition finishes (about 15 s after the weight settles).</li>
+          <li>Your user number and the scale this phone uses are under Settings › Scale.</li>
+        </ol>
+        <p className="row">
+          Still not working? Share the capture log (every byte exchanged with the scale).
+          <button className="button small" onClick={shareLog}>
+            Share capture log
           </button>
         </p>
-      )}
-      <p className="muted small">
-        Not working? Share the capture log: it records every byte exchanged with the scale, so the profile's Bluetooth settings can be
-        tuned (and replayed under Scale profiles).{" "}
-        <button className="button small" onClick={shareLog}>
-          Share capture log
-        </button>
-      </p>
+      </details>
     </Modal>
   );
 }

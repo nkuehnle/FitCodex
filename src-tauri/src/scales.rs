@@ -40,20 +40,10 @@ pub fn delete_scale_profile(state: State<AppState>, id: String) -> CmdResult<()>
     with(&state, |db| db.delete_scale_profile(&id))
 }
 
-/// The scans analyses use: one source only (see `Db::analysis_scans`).
+/// The scans analyses use: every device's (see `Db::analysis_scans`).
 #[tauri::command]
 pub fn analysis_scans(state: State<AppState>) -> CmdResult<Vec<InBodyScan>> {
     with(&state, |db| db.analysis_scans())
-}
-
-#[tauri::command]
-pub fn body_comp_analysis_source(state: State<AppState>) -> CmdResult<Option<String>> {
-    with(&state, |db| db.analysis_source())
-}
-
-#[tauri::command]
-pub fn set_body_comp_analysis_source(state: State<AppState>, source: Option<String>) -> CmdResult<()> {
-    with(&state, |db| db.set_analysis_source(source.as_deref()))
 }
 
 #[derive(Serialize, Default)]
@@ -253,11 +243,12 @@ fn session_for(db: &Db, profile: &str, unit_lb: bool) -> fitledger_core::Result<
 }
 
 /// Finds scales nearby for a profile: { devices: [...], others: [...] } (see the Android plugin),
-/// keeping what it saw for the capture log.
+/// keeping what it saw for the capture log. With `address` (a remembered scale) it ends as soon as
+/// that one is seen.
 #[tauri::command]
-pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String) -> CmdResult<serde_json::Value> {
+pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String, address: Option<String>) -> CmdResult<serde_json::Value> {
     let names = with(&state, |db| db.scale_profile(&profile))?.bluetooth.map(|b| b.names).unwrap_or_default();
-    let r = ble_call(&app, "scan", serde_json::json!({ "names": names, "timeoutMs": 10000 })).await;
+    let r = ble_call(&app, "scan", serde_json::json!({ "names": names, "timeoutMs": 10000, "address": address.unwrap_or_default() })).await;
     let mut log = vec![format!("# FitLedger scale scan: profile {profile}, {}", Local::now().format(TIME_FMT))];
     match &r {
         Ok(v) => {
@@ -467,7 +458,7 @@ mod tests {
 
     #[test]
     fn each_phone_uses_its_own_user_number() {
-        let mut db = Db::open_in_memory().unwrap();
+        let db = Db::open_in_memory().unwrap();
         db.set_setting("sex", "male").unwrap();
         db.set_setting("birth_year", "1991").unwrap();
         db.set_setting("height_cm", "180").unwrap();

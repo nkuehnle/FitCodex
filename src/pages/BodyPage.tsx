@@ -30,7 +30,7 @@ import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format"
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { PhaseSplitCard } from "../components/PhaseSplitCard";
 import { IS_ANDROID, fileToBase64 } from "../platform";
-import { BluetoothWeighIn, ImpedanceCard, PendingWeighIns, QuickScaleButton, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
+import { ImpedanceCard, PendingWeighIns, QuickScaleButton, sourceName } from "../components/ScaleTools";
 import { RecoveryLine, RecoveryTab } from "../components/RecoveryTab";
 import { isPumped, pumpRatio } from "../pump";
 
@@ -831,13 +831,15 @@ function InBodyTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ScaleProfile[]>([]);
   /** The device the import buttons are for. */
-  const [profileId, setProfileId] = useState(() => localStorage.getItem("bodyCompDevice") ?? "inbody");
-  const [analysisSource, setAnalysisSource] = useState<string | null>(null);
-  const [showProfiles, setShowProfiles] = useState(false);
-  const [bluetooth, setBluetooth] = useState(false);
+  const [profileId, setProfileId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("bodyCompDevice");
+    } catch {
+      return null;
+    }
+  });
   const load = () => {
     api.inbodyScans().then(setScans);
-    api.bodyCompAnalysisSource().then(setAnalysisSource);
   };
   const loadProfiles = () => api.scaleProfiles().then(setProfiles);
   useEffect(() => {
@@ -846,7 +848,8 @@ function InBodyTab() {
     api.inbodyFields().then(setFields);
     api.listPhases().then(setPhases);
   }, []);
-  const profile = profiles.find((p) => p.id === profileId) ?? profiles[0];
+  // The chosen device, else a Bluetooth scale (what you weigh in on at home), else the first.
+  const profile = profiles.find((p) => p.id === profileId) ?? profiles.find((p) => p.bluetooth) ?? profiles[0];
   const chooseProfile = (id: string) => {
     setProfileId(id);
     try {
@@ -862,17 +865,14 @@ function InBodyTab() {
   const unitLabel = (f?: InBodyField) =>
     !f ? "" : f.unit === "kg" ? unit : f.unit === "pct" ? "%" : f.unit === "l" ? "L" : f.unit === "kcal" ? "kcal" : "";
   const unitLabel2 = (f?: InBodyField) => (f?.unit === "ohm" ? "Ω" : f?.unit === "bpm" ? "bpm" : f?.unit === "years" ? "years" : unitLabel(f));
-  // One line per device: different BIA devices don't agree, so they're never joined into one line.
-  const series = (c: string): Series[] =>
-    sources
-      .map((src) => ({
-        id: `${c}-${src}`,
-        label: sources.length > 1 ? `${fieldOf(c)?.label ?? c} (${sourceName(profiles, src)})` : (fieldOf(c)?.label ?? c),
-        points: scans
-          .filter((s) => (s.source ?? "inbody") === src && s.values[c] != null)
-          .map((s) => ({ t: parseLocal(s.measured_at_local), v: conv(fieldOf(c), s.values[c]) })) as Point[],
-      }))
-      .filter((x) => x.points.length > 0);
+  // One line across every device's scans.
+  const series = (c: string): Series[] => [
+    {
+      id: c,
+      label: fieldOf(c)?.label ?? c,
+      points: scans.filter((s) => s.values[c] != null).map((s) => ({ t: parseLocal(s.measured_at_local), v: conv(fieldOf(c), s.values[c]) })) as Point[],
+    },
+  ];
   const available = fields.filter(
     (f) => scans.some((s) => s.values[f.column] != null) && !f.column.startsWith("lean_") && !f.column.startsWith("fat_"),
   );
@@ -882,7 +882,7 @@ function InBodyTab() {
     const text = await file.text();
     const preview = await api.previewInbodyCsv(text);
     // A file with columns seen before keeps its device; a new one is for the chosen device.
-    if (!preview.remembered && profileId !== "inbody") preview.mapping.source = profileId;
+    if (!preview.remembered && profile && profile.id !== "inbody") preview.mapping.source = profile.id;
     setCsv({ text, preview });
   }
 
@@ -902,42 +902,8 @@ function InBodyTab() {
     return best;
   }
 
-  /** Vendor-app screenshots: read with the profile's labels, then checked in the scan form. */
-  async function onScreenshots(files: FileList | null) {
-    if (!files?.length || !profile) return;
-    setMsg(null);
-    const toCheck: { scan: InBodyScan; doubtful: string[] }[] = [];
-    const failed: string[] = [];
-    for (const [i, file] of [...files].entries()) {
-      setReading(`Reading screenshot ${i + 1} of ${files.length}…`);
-      try {
-        const r = await api.readBodyCompScreenshot(await fileToBase64(file), profile.id, unit);
-        if (!Object.keys(r.values).length) {
-          failed.push(`${file.name}: none of the ${profile.name} labels found (read: ${r.text.slice(0, 6).join(" / ")})`);
-          continue;
-        }
-        toCheck.push({
-          scan: { id: null, measured_at_local: r.measured_at ?? nowLocal(), values: r.values, device: profile.name, notes: null, source: profile.id },
-          doubtful: r.measured_at ? r.doubtful : [...r.doubtful, "date"],
-        });
-      } catch (e) {
-        failed.push(`${file.name}: ${e}`);
-      }
-    }
-    setReading(null);
-    setMsg(
-      [toCheck.length && `Check ${toCheck.length} reading${toCheck.length > 1 ? "s" : ""} before saving.`, failed.length && `Couldn't read: ${failed.join("; ")}`]
-        .filter(Boolean)
-        .join(" "),
-    );
-    if (toCheck.length) {
-      setEditing(toCheck[0].scan);
-      setFlagged(toCheck[0].doubtful);
-      setReview(toCheck.slice(1));
-    }
-  }
-
-  /** Result-sheet images: clean reads are saved, anything doubtful opens for a check. */
+  /** InBody result sheets (clean reads are saved, anything doubtful opens for a check) and
+   *  scale-app screenshots (always checked). */
   async function onImages(files: FileList | null) {
     if (!files?.length) return;
     setMsg(null);
@@ -1032,43 +998,24 @@ function InBodyTab() {
           >
             + Add scan
           </button>
-          {profile?.id === "inbody" ? (
-            <label className="button">
-              Read sheet images
-              <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onImages(e.target.files)} />
-            </label>
-          ) : (
-            profile &&
-            Object.keys(profile.labels).length > 0 && (
-              <label className="button">
-                Read app screenshots
-                <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onScreenshots(e.target.files)} />
-              </label>
-            )
-          )}
-          {IS_ANDROID && profile?.bluetooth && (
-            <button className="button" onClick={() => setBluetooth(true)}>
-              Weigh in over Bluetooth
-            </button>
-          )}
+          <label className="button">
+            Read images
+            <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onImages(e.target.files)} />
+          </label>
           <label className="button">
             Import CSV
             <input type="file" accept=".csv,text/csv" hidden onChange={(e) => onFile(e.target.files?.[0])} />
           </label>
-          <button className="button" onClick={() => setShowProfiles(true)}>
-            Scale profiles
-          </button>
         </div>
         <p className="muted small">
-          {profile?.id === "inbody"
-            ? "Sheet images: InBody 580 result sheets saved as PNG or JPEG, read on this device."
-            : `Screenshots of the ${profile?.name ?? "scale"} app's results page are read on this device. Its body composition also arrives from Health Connect when the app shares it there${profile?.bluetooth ? (IS_ANDROID ? ", or weigh in over Bluetooth" : "; Bluetooth weigh-ins are in the Android app") : ""}.`}
+          Read images takes InBody result sheets and scale-app screenshots, read on this device.
+          {IS_ANDROID && " Weigh in on your Bluetooth scale with the Weigh in button at the top; set it up under Settings › Scale."}
         </p>
         {reading && <p className="small">{reading}</p>}
         {msg && <p className="success small">{msg}</p>}
       </section>
       {scans.length === 0 ? (
-        <p className="empty">No scans yet. Add one from an InBody result sheet or a home scale, or import a CSV.</p>
+        <p className="empty">No scans yet. Weigh in on your scale, read a screenshot or result sheet, or import a CSV.</p>
       ) : (
         <>
           <section className="card">
@@ -1091,29 +1038,7 @@ function InBodyTab() {
               height={220}
             />
           </section>
-          {sources.length > 1 && (
-            <section className="card">
-              <label>
-                Analyses use
-                <select
-                  className="select"
-                  value={analysisSource ?? ""}
-                  onChange={(e) => api.setBodyCompAnalysisSource(e.target.value || null).then(load)}
-                >
-                  {sources.map((src) => (
-                    <option key={src} value={src}>
-                      {sourceName(profiles, src)} scans
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="muted small">
-                Body fat trends, muscle growth, left/right balance and reports use one device's scans: different BIA devices read
-                differently, so mixing them would show changes that aren't real.
-              </p>
-            </section>
-          )}
-          <Segmental scans={scans.filter((s) => (s.source ?? "inbody") === (analysisSource ?? "inbody"))} unit={unit} />
+          <Segmental scans={scans} unit={unit} />
           <ImpedanceCard scans={scans} profiles={profiles} unit={unit} />
           <section className="card">
             <div className="section-label">Scans</div>
@@ -1154,31 +1079,6 @@ function InBodyTab() {
           onSaved={() => {
             load();
             nextReview();
-          }}
-        />
-      )}
-      {showProfiles && (
-        <ScaleProfilesModal
-          profiles={profiles}
-          fields={fields}
-          unit={unit}
-          onChanged={() => {
-            loadProfiles();
-            load();
-          }}
-          onClose={() => setShowProfiles(false)}
-        />
-      )}
-      {bluetooth && profile && (
-        <BluetoothWeighIn
-          profile={profile}
-          fields={fields}
-          unit={unit}
-          onClose={() => setBluetooth(false)}
-          onSaved={(m) => {
-            setBluetooth(false);
-            setMsg(m);
-            load();
           }}
         />
       )}
@@ -1415,7 +1315,7 @@ function ScanForm({
   }
 
   return (
-    <Modal title={scan.id ? "Edit scan" : homeScale ? `New scan: ${scan.device ?? scan.source}` : "New InBody scan"} onClose={onClose} wide>
+    <Modal title={scan.id ? "Edit scan" : scan.device ? `New scan: ${scan.device}` : "New scan"} onClose={onClose} wide>
       <div className="form">
         <div className="form-row">
           <label>

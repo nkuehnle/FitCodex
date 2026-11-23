@@ -34,6 +34,8 @@ class ScanArgs {
     /** Advertised names to keep (case-insensitive prefix); empty keeps devices with a QN service. */
     var names: Array<String> = arrayOf()
     var timeoutMs: Long = 6000
+    /** A remembered scale: the scan ends as soon as it's seen. */
+    var address: String = ""
 }
 
 @InvokeArg
@@ -102,6 +104,8 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
         val found = linkedMapOf<String, JSObject>()
         val others = linkedMapOf<String, JSObject>()
         var failed: Int? = null
+        var done = false
+        lateinit var finish: () -> Unit
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, r: ScanResult) {
                 val name = r.scanRecord?.deviceName ?: r.device.name ?: ""
@@ -120,25 +124,30 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
                     put("manufacturer", hex(bytes))
                     put("services", uuids.joinToString(" ") { u -> u.toString().let { if (it.endsWith(BASE_UUID)) it.substring(4, 8) else it } })
                 }
-                if (wanted) {
+                if (wanted || r.device.address.equals(a.address, ignoreCase = true)) {
                     found[r.device.address] = o
                     others.remove(r.device.address)
                 } else if (r.device.address !in found) others[r.device.address] = o
+                if (a.address.isNotEmpty() && r.device.address.equals(a.address, ignoreCase = true)) main.post { finish() }
             }
 
             override fun onScanFailed(errorCode: Int) {
                 failed = errorCode
             }
         }
+        finish = {
+            if (!done) {
+                done = true
+                scanner.stopScan(cb)
+                if (failed != null && found.isEmpty() && others.isEmpty()) invoke.reject("Bluetooth scan failed ($failed); turn Bluetooth off and on, then try again")
+                else invoke.resolve(JSObject().apply {
+                    put("devices", JSArray().apply { found.values.forEach { put(it) } })
+                    put("others", JSArray().apply { others.values.sortedByDescending { it.getInteger("rssi") ?: -200 }.forEach { put(it) } })
+                })
+            }
+        }
         scanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
-        main.postDelayed({
-            scanner.stopScan(cb)
-            if (failed != null && found.isEmpty() && others.isEmpty()) return@postDelayed invoke.reject("Bluetooth scan failed ($failed); turn Bluetooth off and on, then try again")
-            invoke.resolve(JSObject().apply {
-                put("devices", JSArray().apply { found.values.forEach { put(it) } })
-                put("others", JSArray().apply { others.values.sortedByDescending { it.getInteger("rssi") ?: -200 }.forEach { put(it) } })
-            })
-        }, a.timeoutMs.coerceIn(1000, 20000))
+        main.postDelayed({ finish() }, a.timeoutMs.coerceIn(1000, 20000))
     }
 
     /** Connects and subscribes; resolves at once, then poll() reports "connecting" -> "ready". */
