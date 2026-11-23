@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WeighInRow } from "../api";
-import { goalCorridors, phaseLines } from "./corridor";
+import { calorieTargets, goalCorridors, phaseLines } from "./corridor";
 
 const row = (at: string, weight_kg: number, source = "manual"): WeighInRow => ({ id: 0, at, weight_kg, source }) as WeighInRow;
 const same = (kg: number) => kg;
@@ -74,5 +74,28 @@ describe("phaseLines", () => {
     expect(lines[0].points[2].x).toBeCloseTo((8.5 + 1 / 3) / 7, 6);
     expect(lines[1].points.at(-1)!.y).toBeCloseTo(0.3, 6);
     expect(phaseLines(goals, rows, "cut", new Date(2026, 5, 12))).toEqual([]);
+  });
+});
+
+describe("calorieTargets", () => {
+  const rows = [row("2026-10-31 08:00:00", 80.2), row("2026-11-02 08:00:00", 79.8)];
+  it("turns each goal's weekly rate into a daily surplus or deficit band", () => {
+    const [gain, cut, keep] = calorieTargets(
+      [
+        { goal: "gain", start_date: "2026-11-02", end_date: "2026-11-30", weekly_rate_kg: null },
+        { goal: "cut", start_date: "2026-12-01", end_date: "2026-12-31", weekly_rate_kg: -0.5 },
+        { goal: "maintain", start_date: "2027-01-01", end_date: null, weekly_rate_kg: null },
+      ],
+      rows,
+      new Date(2027, 1, 1),
+    );
+    // Gain: +0.2 to +0.4 kg a week from 80 kg, at 7,700 kcal per kg: +220 to +440 kcal a day.
+    expect(gain.v0 - gain.half).toBeCloseTo(220, 6);
+    expect(gain.v0 + gain.half).toBeCloseTo(440, 6);
+    expect([gain.lo, gain.hi]).toEqual([0, 0]);
+    // Cut at 0.5 kg a week (±0.1): −660 to −440 kcal a day.
+    expect(cut.v0).toBeCloseTo(-550, 6);
+    expect(cut.half).toBeCloseTo(110, 6);
+    expect([keep.v0, keep.half]).toEqual([0, 0]);
   });
 });

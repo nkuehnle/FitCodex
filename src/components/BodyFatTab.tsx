@@ -4,7 +4,7 @@ import { usePrefs } from "../App";
 import { TimeSeriesChart, type Series } from "../charts/TimeSeriesChart";
 import { bodyFatSeries, type Pt, type Sex } from "../bodyfat";
 import { toUnit } from "../format";
-import { AGE_BRACKETS, parseAges, Standing, whoOf } from "./Standing";
+import { COMPARE_CHANGED, CompareWith, parseAges, Standing, whoOf } from "./Standing";
 
 const CM_PER_IN = 2.54;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -28,12 +28,15 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
     Promise.all([api.measurements(), api.analysisScans(), api.weighIns(true)]).then(([m, scans, w]) => setData({ m, scans, w }));
     api.getSetting("sex").then((s) => setSex(s === "male" || s === "female" ? s : null));
     api.getSetting("birth_year").then((y) => setBirthYear(y ?? ""));
-    api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
+    const loadAges = () => api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
+    loadAges();
+    window.addEventListener(COMPARE_CHANGED, loadAges);
     api.getSetting("height_cm").then((h) => {
       const v = h ? Number(h) : null;
       setHeightCm(v);
       if (v) setHeightText(String(Math.round((inches ? v / CM_PER_IN : v) * 10) / 10));
     });
+    return () => window.removeEventListener(COMPARE_CHANGED, loadAges);
   }, []);
 
   const s = useMemo(() => data && bodyFatSeries(data.m, data.scans, data.w, sex, heightCm), [data, sex, heightCm]);
@@ -54,20 +57,6 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
   const saveBirthYear = (text: string) => {
     setBirthYear(text);
     if (/^(19|20)\d\d$/.test(text)) api.setSetting("birth_year", text);
-  };
-
-  const saveAges = (v: number[]) => {
-    setAges(v);
-    api.setSetting("compare_ages", v.join(","));
-  };
-  // Switching to age groups starts from the one you're in (or 30–39 without a birth year).
-  const ownBracket = () => {
-    const age = new Date().getFullYear() - Number(birthYear);
-    return [...AGE_BRACKETS].reverse().find((b) => age >= b.from)?.from ?? 30;
-  };
-  const toggleAge = (from: number) => {
-    const next = ages.includes(from) ? ages.filter((a) => a !== from) : [...ages, from].sort((a, b) => a - b);
-    if (next.length) saveAges(next);
   };
 
   const fat: Series[] = [
@@ -140,30 +129,10 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
             />
           </label>
         </div>
-        <div className="row">
-          <span className="small muted">Compare with:</span>
-          <div className="segmented small">
-            <button className={!ages.length ? "active" : ""} onClick={() => ages.length && saveAges([])}>
-              My age
-            </button>
-            <button className={ages.length ? "active" : ""} onClick={() => !ages.length && saveAges([ownBracket()])}>
-              Age groups
-            </button>
-          </div>
-          {ages.length > 0 && (
-            <div className="segmented small age-brackets">
-              {AGE_BRACKETS.map((b) => (
-                <button key={b.from} className={ages.includes(b.from) ? "active" : ""} aria-pressed={ages.includes(b.from)} onClick={() => toggleAge(b.from)}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
         <p className="muted small">
           Navy uses waist and neck{sex === "female" ? " and hips" : ""} measured within two weeks of each other; RFM uses waist
-          only. Both are estimates, typically within ±3–4 % of a scan. Percentile comparisons need your birth year, or pick age groups to
-          compare with instead (several are pooled together).
+          only. Both are estimates, typically within ±3–4 % of a scan. Comparisons with other adults need your birth year, or pick age groups
+          to compare with under Charts.
         </p>
       </section>
     );
@@ -185,6 +154,7 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
       {compare.length > 0 && who && (
         <section className="card">
           <h2 className="section-title">How you compare</h2>
+          <CompareWith />
           {compare.map((c) => (
             <Standing key={c.metric} {...c} who={who} />
           ))}

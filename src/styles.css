@@ -445,6 +445,21 @@ input[type="range"] {
   color: var(--muted);
 }
 
+/* One line of small stats above a chart. */
+.stats-row.compact {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+.stats-row.compact .stat-value {
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+.stats-row.compact .stat-label {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
 .facts {
   display: grid;
   grid-template-columns: auto 1fr;

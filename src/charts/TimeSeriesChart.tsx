@@ -56,6 +56,8 @@ export interface TimeSeriesProps {
   series: Series[];
   /** Target ranges drawn behind the lines (the bodyweight goal's rate). */
   corridors?: CorridorBand[];
+  /** What the corridors are, written in the plot (default "Goal pace (target rate)"). */
+  corridorLabel?: string;
   /** Plateaus drawn as dashed levels (exercise charts). */
   plateaus?: PlateauLine[];
   /** Appended to y labels, e.g. "lb". */
@@ -138,6 +140,8 @@ export function TimeSeriesChart(props: TimeSeriesProps) {
     }
   };
   const dragging = useRef(false);
+  // The slider stays hidden until asked for, so scrolling past a chart can't change it by accident.
+  const [adjusting, setAdjusting] = useState(false);
   const [showBands, setShowBands] = useState(true);
   const [full, setFull] = useState(false);
   const points = Math.max(0, ...props.series.filter((s) => s.style !== "points").map((s) => s.points.length));
@@ -162,9 +166,14 @@ export function TimeSeriesChart(props: TimeSeriesProps) {
           </button>
         </div>
       )}
-      {controls && smooth.on && hasLine && (
+      {controls && smooth.on && hasLine && !adjusting && (
+        <button className="button small" aria-expanded={false} onClick={() => setAdjusting(true)}>
+          Smooth {(span * 100).toFixed(1)}% ▾
+        </button>
+      )}
+      {controls && smooth.on && hasLine && adjusting && (
         <label className="span-slider small muted">
-          Smoothing
+          Smooth
           <input
             type="range"
             min={0}
@@ -175,6 +184,9 @@ export function TimeSeriesChart(props: TimeSeriesProps) {
             {...sidewaysDrag(maxSpan, setSpan, dragging)}
           />
           <SpanInput value={span} max={maxSpan} onChange={setSpan} />
+          <button className="button small" onClick={() => setAdjusting(false)}>
+            Done ▴
+          </button>
         </label>
       )}
       {controls && (props.bands?.length ?? 0) > 0 && (
@@ -602,7 +614,7 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
             <tspan fill={theme.categorical[2]} fillOpacity={0.6}>
               ▬
             </tspan>{" "}
-            Goal pace (target rate)
+            {props.corridorLabel ?? "Goal pace (target rate)"}
           </text>
         )}
 

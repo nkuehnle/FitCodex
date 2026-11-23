@@ -1,8 +1,8 @@
-import { goalCorridors, phaseLines, type GoalStretch } from "../charts/corridor";
+import { calorieTargets, goalCorridors, phaseLines, type GoalStretch } from "../charts/corridor";
 import { PhaseOverlay } from "../charts/PhaseOverlay";
 import * as d3 from "d3";
 import { ask } from "../components/Modal";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
   type CsvMapping,
@@ -24,7 +24,7 @@ import { TimeSeriesChart, type Band, type Point, type Series } from "../charts/T
 import { useChartTheme, type ChartTheme } from "../charts/theme";
 import { BodyFatTab } from "../components/BodyFatTab";
 import { Modal } from "../components/Modal";
-import { ProfileHint, Standing, useNormProfile } from "../components/Standing";
+import { CompareWith, ProfileHint, Standing, useNormProfile } from "../components/Standing";
 import { ShareButton } from "../share/ShareDialog";
 import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
@@ -108,14 +108,13 @@ export default function BodyPage({ path }: { path: string[] }) {
             </>
           )}
           {(tab as DataTab) === "scans" && <InBodyTab key={`s${rev}`} mode="data" />}
-          {(tab as DataTab) === "calories" && <DietTab mode="data" />}
+          {(tab as DataTab) === "calories" && <DietTab />}
         </>
       ) : (
         <>
           {(tab as ChartTab) === "weight" && (
             <>
               <BodyweightTab key={rev} mode="charts" />
-              <DietTab mode="charts" />
             </>
           )}
           {(tab as ChartTab) === "body" &&
@@ -536,6 +535,7 @@ function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
       {norm && normValues.length > 0 && loaded && (
         <section className="card">
           <h2 className="section-title">How you compare</h2>
+          <CompareWith />
           {who ? (
             <Standing
               metric={norm}
@@ -595,6 +595,16 @@ function BodyweightTab({ mode }: { mode: Mode }) {
   };
   const [goals, setGoals] = useState<GoalStretch[]>([]);
   const [view, setView] = useState({ smooth: { on: false, span: 0.15 }, showBands: true });
+  // Calories on the same panel: energy balance from the weight trend over a window, and what was logged.
+  const [energy, setEnergy] = useState<EnergyPoint[]>([]);
+  const [days, setDays] = useState<DietDay[]>([]);
+  const [window_, setWindow] = useState(14);
+  useEffect(() => {
+    if (mode === "charts") api.energyBalance(window_).then(setEnergy);
+  }, [mode, window_]);
+  useEffect(() => {
+    if (mode === "charts") api.dietDays().then(setDays);
+  }, [mode]);
   const load = () => api.weighIns(true).then(setRows);
   useEffect(() => {
     load();
@@ -610,12 +620,33 @@ function BodyweightTab({ mode }: { mode: Mode }) {
   const pts = (rs: WeighInRow[]): Point[] => rs.map((r) => ({ t: parseLocal(r.at), v: toUnit(r.weight_kg, unit) }));
   const series = [{ id: "bw", label: "Weigh-ins", points: pts(regular) }];
   // Each goal's target pace, for the goals that overlap the range.
-  const corridors = goalCorridors(
-    goals.filter((g) => (!range.to || g.start_date <= range.to) && (!range.from || !g.end_date || g.end_date >= range.from)),
-    rows,
-    (kg) => toUnit(kg, unit),
-    new Date(),
-  );
+  const inView = goals.filter((g) => (!range.to || g.start_date <= range.to) && (!range.from || !g.end_date || g.end_date >= range.from));
+  const corridors = goalCorridors(inView, rows, (kg) => toUnit(kg, unit), new Date());
+  // The same goals as a daily surplus / deficit target.
+  const kcalTargets = calorieTargets(inView, rows, new Date());
+
+  const e = energy.filter((p) => inRange(p.date, range));
+  const latest = [...energy].reverse().find((p) => p.balance_kcal != null);
+  const latestTdee = [...energy].reverse().find((p) => p.tdee_kcal != null);
+  const balance = e.filter((p) => p.balance_kcal != null).map((p) => ({ t: parseLocal(p.date), v: Math.round(p.balance_kcal!) }));
+  const tdee = e.filter((p) => p.tdee_kcal != null).map((p) => ({ t: parseLocal(p.date), v: Math.round(p.tdee_kcal!) }));
+  const intake = days.filter((x) => x.calories != null && inRange(x.date, range)).map((x) => ({ t: parseLocal(x.date), v: x.calories! }));
+  const proteinPts = days.filter((x) => x.protein_g != null && inRange(x.date, range)).map((x) => ({ t: parseLocal(x.date), v: x.protein_g! }));
+  const shownBands = view.showBands ? bandsOf(phases) : undefined;
+  const kcalAxis = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString();
+  const caloriesChart = {
+    title: "Surplus / deficit from weight trend",
+    series: [{ id: "bal", label: "Surplus / deficit", points: balance }],
+    unit: "kcal",
+    bands: shownBands,
+    corridors: showTarget ? kcalTargets : undefined,
+    corridorLabel: "Target surplus / deficit",
+    hideNumbers: hide,
+    smooth: view.smooth,
+    diverging: { aboveLabel: "Surplus", belowLabel: "Deficit" },
+    yStep: 250,
+    yFormat: kcalAxis,
+  };
 
   // Weekly average (last 7 days) and change over the range.
   const last7 = regular.filter((r) => parseLocal(r.at).getTime() > Date.now() - 7 * 86400000);
@@ -669,23 +700,19 @@ function BodyweightTab({ mode }: { mode: Mode }) {
             chart={{
               series,
               unit,
-              bands: view.showBands ? bandsOf(phases) : undefined,
+              bands: shownBands,
               corridors: showTarget ? corridors : undefined,
               hideNumbers: hide,
               yFormat: (v) => v.toFixed(0),
               smooth: view.smooth,
             }}
+            calories={balance.length > 1 ? caloriesChart : undefined}
           />
         </div>
-        <div className="stats-row">
+        <div className="stats-row compact">
           {last && <Stat label="Latest" value={`${toUnit(last.weight_kg, unit).toFixed(1)} ${unit}`} />}
-          {avg7 != null && <Stat label="7-day average" value={`${toUnit(avg7, unit).toFixed(1)} ${unit}`} />}
-          {change != null && (
-            <Stat
-              label={`Change (${range.label.toLowerCase()})`}
-              value={`${change >= 0 ? "+" : "−"}${Math.abs(toUnit(change, unit)).toFixed(1)} ${unit}`}
-            />
-          )}
+          {avg7 != null && <Stat label="7-day avg" value={`${toUnit(avg7, unit).toFixed(1)} ${unit}`} />}
+          {change != null && <Stat label="Change" value={`${change >= 0 ? "+" : "−"}${Math.abs(toUnit(change, unit)).toFixed(1)} ${unit}`} />}
           {change != null && (
             <Stat label="Per week" value={`${change >= 0 ? "+" : "−"}${Math.abs(toUnit(change / weeks, unit)).toFixed(2)} ${unit}`} />
           )}
@@ -696,7 +723,7 @@ function BodyweightTab({ mode }: { mode: Mode }) {
           <label className="check">
             <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} /> Hide numbers
           </label>
-          {corridors.length > 0 && (
+          {corridors.length + kcalTargets.length > 0 && (
             <label className="check">
               <input type="checkbox" checked={showTarget} onChange={(e) => setShowTarget(e.target.checked)} /> Goal pace
             </label>
@@ -714,16 +741,85 @@ function BodyweightTab({ mode }: { mode: Mode }) {
           onView={setView}
         />
         {showTarget && corridors.length > 0 && (
-          <p className="muted small" style={{ marginBottom: 0 }}>
+          <p className="muted small">
             The shaded band (Goal pace) is where your weight would be at each goal's target rate, from where that goal began (for maintenance, within
             1% of it). Inside it, you're on pace.
           </p>
         )}
+        {balance.length > 0 && (
+          <>
+            <div className="section-label">Calories: surplus (+) / deficit (−) from weight trend</div>
+            <div className="stats-row compact">
+              {latest?.balance_kcal != null && (
+                <Stat
+                  label={latest.balance_kcal >= 0 ? "Estimated surplus" : "Estimated deficit"}
+                  value={hide ? "—" : `${Math.abs(Math.round(latest.balance_kcal))} kcal/day`}
+                />
+              )}
+              {latestTdee?.tdee_kcal != null && <Stat label="Estimated TDEE" value={hide ? "—" : `${Math.round(latestTdee.tdee_kcal)} kcal`} />}
+            </div>
+            <TimeSeriesChart {...caloriesChart} height={200} showControls={false} share={false} />
+            <div className="row small">
+              Averaged over
+              <div className="segmented small">
+                {[7, 14, 28].map((w) => (
+                  <button key={w} className={window_ === w ? "active" : ""} onClick={() => setWindow(w)}>
+                    {w} days
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="muted small" style={{ marginBottom: 0 }}>
+              From your weight trend: each {unit === "lb" ? "lb" : "kg"} gained or lost ≈ {unit === "lb" ? "3,500" : "7,700"} kcal.
+              {showTarget && kcalTargets.length > 0 && " The band is each goal's target surplus or deficit."} TDEE needs calories logged
+              on at least half the days in the window.
+            </p>
+          </>
+        )}
       </section>
+      {(tdee.length > 0 || proteinPts.length > 0) && (
+        <section className="card">
+          <h2 className="section-title">Intake</h2>
+          {tdee.length > 0 && (
+            <>
+              <div className="section-label">Estimated TDEE and logged intake</div>
+              <TimeSeriesChart
+                title="Estimated TDEE and logged intake"
+                series={[
+                  { id: "tdee", label: "TDEE", points: tdee },
+                  { id: "in", label: "Intake", points: intake, style: "points" },
+                ]}
+                unit="kcal"
+                bands={shownBands}
+                hideNumbers={hide}
+                smooth={view.smooth}
+                showControls={false}
+                height={200}
+              />
+            </>
+          )}
+          {proteinPts.length > 0 && (
+            <>
+              <div className="section-label">Protein</div>
+              <TimeSeriesChart
+                title="Protein"
+                series={[{ id: "p", label: "Protein", points: proteinPts }]}
+                unit="g"
+                bands={shownBands}
+                hideNumbers={hide}
+                smooth={view.smooth}
+                showControls={false}
+                height={160}
+              />
+            </>
+          )}
+        </section>
+      )}
       <PhaseCompare goals={goals} rows={rows} unit={unit} />
       {compareKg.length > 0 && loaded && (
         <section className="card">
           <h2 className="section-title">How you compare</h2>
+          <CompareWith />
           {who ? (
             <>
               <Standing
@@ -1811,24 +1907,14 @@ function CsvMapper({
 
 // ---- Diet ----------------------------------------------------------------------------------------------
 
-/** Calories and protein: logging them (data), or energy balance from the weight trend (charts). */
-function DietTab({ mode }: { mode: Mode }) {
-  const { unit } = usePrefs();
+/** Logging calories and protein (their charts are with the weight chart). */
+function DietTab() {
   const [days, setDays] = useState<DietDay[]>([]);
-  const [energy, setEnergy] = useState<EnergyPoint[]>([]);
-  const [window_, setWindow] = useState(14);
-  const [range, setRange] = useSavedRange("diet");
-  const [phases, setPhases] = useState<Phase[]>([]);
   const [date, setDate] = useState(today());
   const load = () => {
     api.dietDays().then(setDays);
-    api.energyBalance(window_).then(setEnergy);
   };
-  useEffect(() => {
-    load();
-    api.listPhases().then(setPhases);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window_]);
+  useEffect(load, []);
   const day = days.find((d) => d.date === date);
   const [cal, setCal] = useState("");
   const [protein, setProtein] = useState("");
@@ -1847,19 +1933,8 @@ function DietTab({ mode }: { mode: Mode }) {
     load();
   }
 
-  const e = energy.filter((p) => inRange(p.date, range));
-  const latest = [...energy].reverse().find((p) => p.balance_kcal != null);
-  const latestTdee = [...energy].reverse().find((p) => p.tdee_kcal != null);
-  const d = (s: string) => parseLocal(s);
-  const balance = e.filter((p) => p.balance_kcal != null).map((p) => ({ t: d(p.date), v: Math.round(p.balance_kcal!) }));
-  const tdee = e.filter((p) => p.tdee_kcal != null).map((p) => ({ t: d(p.date), v: Math.round(p.tdee_kcal!) }));
-  const intake = days.filter((x) => x.calories != null && inRange(x.date, range)).map((x) => ({ t: d(x.date), v: x.calories! }));
-  const proteinPts = days.filter((x) => x.protein_g != null && inRange(x.date, range)).map((x) => ({ t: d(x.date), v: x.protein_g! }));
-  const bands = useMemo(() => bandsOf(phases), [phases]);
-
   const logged = days.filter((x) => x.calories != null || x.protein_g != null).reverse();
-  if (mode === "data")
-    return (
+  return (
       <>
       <section className="card">
         <p className="muted small">Optional. Log whatever you track; days don't need to match weigh-ins.</p>
@@ -1897,68 +1972,4 @@ function DietTab({ mode }: { mode: Mode }) {
       )}
       </>
     );
-
-  return (
-    <>
-      <section className="card">
-        <h2 className="section-title">Energy balance</h2>
-        <div className="stats-row">
-          {latest?.balance_kcal != null && (
-            <Stat
-              label={latest.balance_kcal >= 0 ? "Estimated surplus" : "Estimated deficit"}
-              value={`${Math.abs(Math.round(latest.balance_kcal))} kcal/day`}
-            />
-          )}
-          {latestTdee?.tdee_kcal != null && <Stat label="Estimated TDEE" value={`${Math.round(latestTdee.tdee_kcal)} kcal`} />}
-          {latest && <Stat label="Trend weight" value={`${toUnit(latest.trend_kg, unit).toFixed(1)} ${unit}`} />}
-        </div>
-        <p className="muted small">
-          From your weight trend: each {unit === "lb" ? "lb" : "kg"} gained or lost ≈ {unit === "lb" ? "3,500" : "7,700"} kcal. TDEE needs
-          calories logged on at least half the days in the window.
-        </p>
-        <div className="row small" style={{ marginTop: 0 }}>
-          Window
-          <div className="segmented small">
-            {[7, 14, 28].map((w) => (
-              <button key={w} className={window_ === w ? "active" : ""} onClick={() => setWindow(w)}>
-                {w} days
-              </button>
-            ))}
-          </div>
-        </div>
-        <RangePicker value={range} onChange={setRange} phases={phases} />
-        <div className="section-label">Surplus (+) / deficit (−) from weight trend</div>
-        <TimeSeriesChart
-          title="Surplus / deficit from weight trend"
-          series={[{ id: "bal", label: "Balance", points: balance }]}
-          unit="kcal"
-          bands={bands}
-          height={220}
-          diverging={{ aboveLabel: "Surplus", belowLabel: "Deficit" }}
-          yStep={250}
-          yFormat={(v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString()}
-        />
-        {tdee.length > 0 && (
-          <>
-            <div className="section-label">Estimated TDEE and logged intake</div>
-            <TimeSeriesChart
-              title="Estimated TDEE and logged intake"
-              series={[
-                { id: "tdee", label: "TDEE", points: tdee },
-                { id: "in", label: "Intake", points: intake, style: "points" },
-              ]}
-              unit="kcal"
-              height={200}
-            />
-          </>
-        )}
-        {proteinPts.length > 0 && (
-          <>
-            <div className="section-label">Protein</div>
-            <TimeSeriesChart series={[{ id: "p", label: "Protein", points: proteinPts }]} unit="g" height={160} />
-          </>
-        )}
-      </section>
-    </>
-  );
 }

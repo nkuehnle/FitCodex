@@ -11,7 +11,7 @@ import { ShareButton } from "../share/ShareDialog";
 import { EQUIPMENT_LABELS, formatDate, formatVolume, formatWeight, parseLocal, toUnit } from "../format";
 import { prText } from "./HistoryPage";
 import { ProgressHeader } from "../components/ProgressHeader";
-import { ExerciseComparisons, ProfileHint, useComparable, useNormProfile } from "../components/Standing";
+import { CompareWith, ExerciseComparisons, ProfileHint, useComparable, useNormProfile } from "../components/Standing";
 
 const KG_PER_LB = 0.45359237;
 
@@ -346,6 +346,7 @@ function ExerciseDetail({ id }: { id: number }) {
           {tab === "records" && comparable.has(info.slug) && loaded && (
             <section className="card">
               <h2 className="section-title">How you compare</h2>
+              <CompareWith />
               {who && latestKg ? (
                 <ExerciseComparisons
                   slug={info.slug}

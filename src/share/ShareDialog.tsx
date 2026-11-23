@@ -16,8 +16,14 @@ export type ShareKind =
   | { kind: "workout"; workoutId: number }
   | { kind: "exercise"; exerciseId: number }
   | { kind: "bodymap"; range: Range }
-  /** The bodyweight chart as it's shown, plus the change over the range. */
-  | { kind: "bodyweight"; range: Range; chart: TimeSeriesProps & { smooth: { on: boolean; span: number } } }
+  /** The bodyweight chart as it's shown, plus the change over the range; with `calories`, the
+   *  surplus / deficit chart from the same panel can go with it (below) or on its own. */
+  | {
+      kind: "bodyweight";
+      range: Range;
+      chart: TimeSeriesProps & { smooth: { on: boolean; span: number } };
+      calories?: TimeSeriesProps & { smooth: { on: boolean; span: number } };
+    }
   | { kind: "inbody" }
   | { kind: "count" }
   /** Any time-series chart, as it's shown (series, smoothing, phases). */
@@ -83,6 +89,8 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
   };
   const [hide, setHide] = useState(spec.kind === "chart" || spec.kind === "bodyweight" ? !!spec.chart.hideNumbers : false);
   const [content, setContent] = useState<CardContent | null>(null);
+  /** Which of the bodyweight panel's charts go in the image. */
+  const [parts, setParts] = useState<Parts>("both");
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [png, setPng] = useState<string | null>(null);
@@ -92,7 +100,7 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
   const H = size === "square" ? 1080 : 1920;
 
   useEffect(() => {
-    buildContent(spec, unit)
+    buildContent(spec, unit, parts)
       .then((c) => {
         setContent(c);
         setTitle(c.title);
@@ -100,7 +108,7 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
       })
       .catch((e) => setMsg(`Couldn't load the card: ${e}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [parts]);
 
   // Layout: header (title, subtitle, stats, lines) then the visual fills the rest.
   const statsH = content?.stats.length ? 150 : 0;
@@ -195,6 +203,21 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
             )}
           </div>
           {msg && <p className="small success">{msg}</p>}
+          {spec.kind === "bodyweight" && spec.calories && (
+            <div className="segmented small">
+              {(
+                [
+                  ["both", "Weight + calories"],
+                  ["weight", "Weight"],
+                  ["calories", "Calories"],
+                ] as [Parts, string][]
+              ).map(([k, label]) => (
+                <button key={k} className={parts === k ? "active" : ""} onClick={() => setParts(k)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <label>
             Title
             <input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -350,7 +373,9 @@ function rasterize(svg: string, w: number, h: number): Promise<string> {
 
 // ---- What each card shows ------------------------------------------------------------------------
 
-async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardContent> {
+type Parts = "both" | "weight" | "calories";
+
+async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "both"): Promise<CardContent> {
   const w = (kg: number) => `${formatWeight(kg, unit)} ${unit}`;
   const muscles = (await api.muscles()).muscles;
   const names = Object.fromEntries(muscles.map((m: Muscle) => [m.id, m.name]));
@@ -445,14 +470,26 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb"): Promise<CardCon
     case "bodyweight": {
       const rows = ((await api.weighIns(false)) as WeighInRow[]).filter((r) => inRange(r.at, spec.range));
       const change = rows.length > 1 ? rows[rows.length - 1].weight_kg - rows[0].weight_kg : null;
+      const cal = spec.calories && parts !== "weight" ? spec.calories : null;
+      const weight = parts !== "calories" || !cal;
       return {
-        title: "Bodyweight",
+        title: cal ? (weight ? "Bodyweight and calories" : "Calorie surplus / deficit") : "Bodyweight",
         subtitle: rows.length ? `${formatDate(rows[0].at)} – ${formatDate(rows[rows.length - 1].at)}` : spec.range.label,
         stats:
-          change != null ? [{ label: "Change", value: `${change >= 0 ? "+" : "−"}${formatWeight(Math.abs(change), unit)} ${unit}` }] : [],
+          change != null && weight
+            ? [{ label: "Change", value: `${change >= 0 ? "+" : "−"}${formatWeight(Math.abs(change), unit)} ${unit}` }]
+            : [],
         lines: [],
+        // Both: weight on top, calories below (stacked into the card).
         visual: (theme, width, h, hide) => (
-          <TimeSeriesSvg {...spec.chart} theme={theme} width={width} height={h} hideNumbers={hide} fontScale={2} />
+          <>
+            {weight && (
+              <TimeSeriesSvg {...spec.chart} theme={theme} width={width} height={cal ? Math.round(h * 0.58) : h} hideNumbers={hide} fontScale={2} />
+            )}
+            {cal && (
+              <TimeSeriesSvg {...cal} theme={theme} width={width} height={weight ? Math.round(h * 0.4) : h} hideNumbers={hide} fontScale={2} />
+            )}
+          </>
         ),
       };
     }

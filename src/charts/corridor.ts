@@ -107,3 +107,36 @@ export function goalCorridors(goals: GoalStretch[], rows: WeighInRow[], toUnit: 
   }
   return out;
 }
+
+/** kcal a day per kg a week of bodyweight change (≈7,700 kcal per kg). */
+const KCAL_PER_KG_WEEK = 7700 / 7;
+
+/**
+ * Each goal's target surplus (+) or deficit (−) in kcal a day, as a level band for the surplus /
+ * deficit chart: its weekly rate (or default range, from the weight where it began) converted at
+ * 7,700 kcal per kg. Maintenance is a line at 0.
+ */
+export function calorieTargets(goals: GoalStretch[], rows: WeighInRow[], until: Date): Corridor[] {
+  const scale = rows.filter((r) => r.source !== "inbody").map((r) => ({ t: parseLocal(r.at).getTime(), kg: r.weight_kg }));
+  const out: Corridor[] = [];
+  for (const g of goals) {
+    const from = parseLocal(g.start_date);
+    const to = g.end_date ? new Date(parseLocal(g.end_date).getTime() + DAY) : until;
+    if (to <= from) continue;
+    if (g.goal === "maintain") {
+      out.push({ from, to, v0: 0, lo: 0, hi: 0, half: 0, label: "Maintain target: 0 kcal/day" });
+      continue;
+    }
+    let kg: [number, number];
+    if (g.weekly_rate_kg != null) kg = [g.weekly_rate_kg - CUSTOM_TOLERANCE_KG, g.weekly_rate_kg + CUSTOM_TOLERANCE_KG];
+    else {
+      const startKg = weightNear(scale, from.getTime());
+      if (startKg == null) continue;
+      kg = [(startKg * RATE_PCT[g.goal][0]) / 100, (startKg * RATE_PCT[g.goal][1]) / 100];
+    }
+    const [lo, hi] = kg.map((k) => k * KCAL_PER_KG_WEEK);
+    const kcal = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(Math.round(v))}`;
+    out.push({ from, to, v0: (lo + hi) / 2, lo: 0, hi: 0, half: (hi - lo) / 2, label: `${GOAL_LABEL[g.goal]}: ${kcal(lo)} to ${kcal(hi)} kcal/day` });
+  }
+  return out;
+}

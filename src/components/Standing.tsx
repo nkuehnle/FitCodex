@@ -8,7 +8,10 @@ import { ShareButton } from "../share/ShareDialog";
 export function useNormProfile(bodyweightKg: number | null = null): { who: NormWho | null; heightCm: number | null; loaded: boolean } {
   const [p, setP] = useState<(string | null)[] | null>(null);
   useEffect(() => {
-    Promise.all(["sex", "birth_year", "height_cm", "compare_ages"].map((k) => api.getSetting(k))).then(setP);
+    const load = () => Promise.all(["sex", "birth_year", "height_cm", "compare_ages"].map((k) => api.getSetting(k))).then(setP);
+    load();
+    window.addEventListener(COMPARE_CHANGED, load);
+    return () => window.removeEventListener(COMPARE_CHANGED, load);
   }, []);
   if (!p) return { who: null, heightCm: null, loaded: false };
   const [sex, birth, height, ages] = p;
@@ -32,6 +35,55 @@ export function parseAges(setting: string | null): number[] {
     .split(",")
     .map(Number)
     .filter((a) => AGE_BRACKETS.some((b) => b.from === a));
+}
+
+/** Window event after "Compare with" changes, so every comparison on screen follows. */
+export const COMPARE_CHANGED = "compare-ages-changed";
+
+/** "Compare with: my age / age groups", shown with the comparisons it changes. */
+export function CompareWith() {
+  const [ages, setAges] = useState<number[] | null>(null);
+  const [birthYear, setBirthYear] = useState<string | null>(null);
+  useEffect(() => {
+    api.getSetting("compare_ages").then((a) => setAges(parseAges(a)));
+    api.getSetting("birth_year").then(setBirthYear);
+  }, []);
+  if (!ages) return null;
+  const save = (v: number[]) => {
+    setAges(v);
+    api.setSetting("compare_ages", v.join(",")).then(() => window.dispatchEvent(new Event(COMPARE_CHANGED)));
+  };
+  // Switching to age groups starts from the one you're in (or 30–39 without a birth year).
+  const own = () => {
+    const age = new Date().getFullYear() - Number(birthYear);
+    return [...AGE_BRACKETS].reverse().find((b) => age >= b.from)?.from ?? 30;
+  };
+  const toggle = (from: number) => {
+    const next = ages.includes(from) ? ages.filter((a) => a !== from) : [...ages, from].sort((a, b) => a - b);
+    if (next.length) save(next);
+  };
+  return (
+    <div className="row small">
+      <span className="muted">Compare with:</span>
+      <div className="segmented small">
+        <button className={!ages.length ? "active" : ""} onClick={() => ages.length && save([])}>
+          My age
+        </button>
+        <button className={ages.length ? "active" : ""} onClick={() => !ages.length && save([own()])}>
+          Age groups
+        </button>
+      </div>
+      {ages.length > 0 && (
+        <div className="segmented small age-brackets">
+          {AGE_BRACKETS.map((b) => (
+            <button key={b.from} className={ages.includes(b.from) ? "active" : ""} aria-pressed={ages.includes(b.from)} onClick={() => toggle(b.from)}>
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Shown where comparisons would be, when the profile isn't set. */
