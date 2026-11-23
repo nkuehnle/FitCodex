@@ -647,7 +647,7 @@ function PhasesTab() {
     <>
       <p className="muted small">
         Named date ranges that split and shade your charts. Program phases (PHUL, Upper/Lower…) and nutrition phases can overlap. Your
-        cut / maintain / gain goals are changed under <a href="#/body/weight">Body → Goal history</a>.
+        cut / maintain / gain goals are changed under <a href="#/body/data/weighins">Measure → Data &amp; metrics → Goal history</a>.
       </p>
       {phases.map((p) => (
         <button key={p.id} className="start-row" onClick={() => setEditing(p)}>

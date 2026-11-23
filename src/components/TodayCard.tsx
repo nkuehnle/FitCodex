@@ -71,7 +71,7 @@ export function TodayCard() {
   return (
     <section className="card today-card">
       {toCheck > 0 && (
-        <a className="small warn" href="#/body/weight">
+        <a className="small warn" href="#/body/data/weighins">
           {toCheck} weigh-in{toCheck > 1 ? "s" : ""} from the scale to check ›
         </a>
       )}
@@ -81,7 +81,7 @@ export function TodayCard() {
         </a>
       )}
       <div className="today-grid">
-        <a className="today-stat" href="#/body/weight" title={stale ? "No weigh-in for over a week" : undefined}>
+        <a className="today-stat" href="#/body/data/weighins" title={stale ? "No weigh-in for over a week" : undefined}>
           <span className={`small ${stale ? "warn" : "muted"}`}>{last ? parseLocal(last.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Weight"}</span>
           <strong>{last ? `${u(last.weight_kg).toFixed(1)} ${unit}` : "—"}</strong>
           {s && (
@@ -96,7 +96,7 @@ export function TodayCard() {
             </span>
           )}
         </a>
-        <a className="today-stat" href={goal && !goal.goal ? "#/body/weight" : "#/body/diet"}>
+        <a className="today-stat" href={goal && !goal.goal ? "#/body/data/weighins" : "#/body/charts/calories"}>
           {goal && !goal.goal ? (
             <>
               <span className="small muted">No goal set</span>

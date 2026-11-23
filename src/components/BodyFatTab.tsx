@@ -12,8 +12,9 @@ const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}
 const short = (t: Date) => t.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 const axis = (v: number) => String(Number(v.toFixed(1)));
 
-/** Body fat % (InBody, logged, Navy and RFM estimates) and lean, muscle and fat mass, measured and estimated. */
-export function BodyFatTab() {
+/** Your profile (sex, height, birth year: "data"), or body fat % (scans, Navy and RFM estimates)
+ *  and lean, muscle and fat mass, measured and estimated ("charts"). */
+export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
   const { unit } = usePrefs();
   const [data, setData] = useState<{ m: MeasurementRow[]; scans: InBodyScan[]; w: WeighInRow[] } | null>(null);
   const [sex, setSex] = useState<Sex | null>(null);
@@ -110,9 +111,10 @@ export function BodyFatTab() {
   const who = whoOf(sex, /^(19|20)\d\d$/.test(birthYear) ? birthYear : null, null, ages);
   const compare = who && heightCm ? comparisons(data!.scans, s, heightCm) : [];
 
-  return (
-    <>
+  if (mode === "data")
+    return (
       <section className="card">
+        <h2 className="section-title">Profile</h2>
         <div className="row">
           <span className="small muted">Your profile:</span>
           <div className="segmented">
@@ -164,6 +166,10 @@ export function BodyFatTab() {
           compare with instead (several are pooled together).
         </p>
       </section>
+    );
+
+  return (
+    <>
       <section className="card">
         <h2 className="section-title">Body fat %</h2>
         {fat.length ? (
@@ -171,8 +177,8 @@ export function BodyFatTab() {
         ) : (
           <p className="muted small">
             {needsProfile
-              ? "Set sex and height above, then log waist and neck under Body parts (or add a body-composition scan)."
-              : "Log waist and neck under Body parts, or add a body-composition scan."}
+              ? "Set sex and height under Data & metrics › Body, then log waist and neck there (or add a body-composition scan)."
+              : "Log waist and neck under Data & metrics › Body, or add a body-composition scan."}
           </p>
         )}
       </section>
@@ -189,7 +195,7 @@ export function BodyFatTab() {
         </section>
       )}
       {!who && (s.measured.length > 0 || s.navy.length > 0) && (
-        <p className="muted small">Set sex, height and birth year above to see how you compare with other adults.</p>
+        <p className="muted small">Set sex, height and birth year under Data & metrics › Body to see how you compare with other adults.</p>
       )}
       {rows.length > 0 && (
         <section className="card">

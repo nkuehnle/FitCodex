@@ -30,16 +30,40 @@ import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format"
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { PhaseSplitCard } from "../components/PhaseSplitCard";
 import { IS_ANDROID, fileToBase64 } from "../platform";
-import { ImpedanceCard, PendingWeighIns, QuickScaleButton, sourceName } from "../components/ScaleTools";
+import { ImpedanceCard, PendingWeighIns, QuickScaleButton, showValue, sourceName } from "../components/ScaleTools";
 import { RecoveryLine, RecoveryTab } from "../components/RecoveryTab";
 import { isPumped, pumpRatio } from "../pump";
 
 const KG_PER_LB = 0.45359237;
-type Tab = "weight" | "inbody" | "diet" | "parts" | "recovery";
+type Mode = "data" | "charts";
+const DATA_TABS = { weighins: "Weigh-ins", body: "Body", scans: "Scans", calories: "Calories" } as const;
+const CHART_TABS = { weight: "Weight", comp: "Body comp", parts: "Body parts", calories: "Calories", recovery: "Recovery" } as const;
+type DataTab = keyof typeof DATA_TABS;
+type ChartTab = keyof typeof CHART_TABS;
 
-export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
+/** Where a route goes: #/body/data/<tab>[/<part>] or #/body/charts/<tab>[/<part>]; older links
+ *  (#/body/weight, /diet, /inbody, /parts/<id>, /recovery) land on their new place. */
+function resolve(path: string[]): { mode: Mode; tab: string; part?: string } {
+  const [a, b, c] = path;
+  if (a === "data") return { mode: "data", tab: b && b in DATA_TABS ? b : "weighins", part: c };
+  if (a === "charts") return { mode: "charts", tab: b && b in CHART_TABS ? b : "weight", part: c };
+  const legacy: Record<string, [Mode, string]> = {
+    weight: ["data", "weighins"],
+    diet: ["data", "calories"],
+    inbody: ["data", "body"],
+    fat: ["data", "body"],
+    parts: ["data", "body"],
+    recovery: ["charts", "recovery"],
+  };
+  const [mode, tab] = legacy[a] ?? ["data", "weighins"];
+  return { mode, tab, part: a === "parts" ? b : undefined };
+}
+
+export default function BodyPage({ path }: { path: string[] }) {
+  const { mode, tab, part } = resolve(path);
   // Bumped when a held weigh-in is saved, to reload the tab.
   const [rev, setRev] = useState(0);
+  const tabs: Record<string, string> = mode === "data" ? DATA_TABS : CHART_TABS;
   return (
     <div className="page">
       <h1 className="page-title">Measure</h1>
@@ -48,25 +72,53 @@ export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
         <QuickScaleButton label="⚖ Weigh in" onSaved={() => setRev((r) => r + 1)} />
       </div>
       <PendingWeighIns key={`p${rev}`} onChanged={() => setRev((r) => r + 1)} />
-      <GoalPanel />
-      <div className="segmented tabs-scroll">
-        {(["weight", "parts", "inbody", "diet", "recovery"] as Tab[]).map((t) => (
-          <a key={t} href={`#/body/${t}`} className={tab === t ? "seg-link active" : "seg-link"}>
-            {{ weight: "Weight", parts: "Body parts", inbody: "Body comp", diet: "Calories", recovery: "Recovery" }[t]}
+      <div className="segmented">
+        {(["data", "charts"] as Mode[]).map((m) => (
+          <a key={m} href={`#/body/${m}`} className={mode === m ? "seg-link active" : "seg-link"}>
+            {m === "data" ? "Data & metrics" : "Charts"}
           </a>
         ))}
       </div>
-      {tab === "weight" && <BodyweightTab key={rev} />}
-      {tab === "parts" && <BodyPartsTab part={part} />}
-      {/* Body comp: body fat and muscle/fat mass (measured and estimated), then InBody scans. */}
-      {tab === "inbody" && (
+      <div className="segmented small tabs-scroll">
+        {Object.entries(tabs).map(([t, label]) => (
+          <a key={t} href={`#/body/${mode}/${t}`} className={tab === t ? "seg-link active" : "seg-link"}>
+            {label}
+          </a>
+        ))}
+      </div>
+      {mode === "data" ? (
         <>
-          <BodyFatTab key={`f${rev}`} />
-          <InBodyTab key={`s${rev}`} />
+          {(tab as DataTab) === "weighins" && (
+            <>
+              <section className="card">
+                <GoalPanel />
+              </section>
+              <BodyweightTab key={rev} mode="data" />
+            </>
+          )}
+          {(tab as DataTab) === "body" && (
+            <>
+              <BodyFatTab key={`f${rev}`} mode="data" />
+              <BodyPartsTab part={part} mode="data" />
+            </>
+          )}
+          {(tab as DataTab) === "scans" && <InBodyTab key={`s${rev}`} mode="data" />}
+          {(tab as DataTab) === "calories" && <DietTab mode="data" />}
+        </>
+      ) : (
+        <>
+          {(tab as ChartTab) === "weight" && <BodyweightTab key={rev} mode="charts" />}
+          {(tab as ChartTab) === "comp" && (
+            <>
+              <BodyFatTab key={`f${rev}`} mode="charts" />
+              <InBodyTab key={`s${rev}`} mode="charts" />
+            </>
+          )}
+          {(tab as ChartTab) === "parts" && <BodyPartsTab part={part} mode="charts" />}
+          {(tab as ChartTab) === "calories" && <DietTab mode="charts" />}
+          {(tab as ChartTab) === "recovery" && <RecoveryTab />}
         </>
       )}
-      {tab === "diet" && <DietTab />}
-      {tab === "recovery" && <RecoveryTab />}
     </div>
   );
 }
@@ -312,7 +364,8 @@ function GoalRate({ rows, unit }: { rows: WeighInRow[]; unit: "kg" | "lb" }) {
 
 // ---- Body parts --------------------------------------------------------------------------------------
 
-function BodyPartsTab({ part }: { part?: string }) {
+/** Tape measurements: logging them (data) or their charts and how they compare (charts). */
+function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
   const { unit } = usePrefs();
   const inches = unit === "lb";
   const [parts, setParts] = useState<BodyPart[]>([]);
@@ -331,15 +384,17 @@ function BodyPartsTab({ part }: { part?: string }) {
   const sel = parts.find((p) => p.id === part);
   const { who, loaded } = useNormProfile();
   const theme = useChartTheme();
+  const base = mode === "data" ? "#/body/data/body" : "#/body/charts/parts";
 
   if (!sel)
     return (
       <section className="card">
+        <h2 className="section-title">{mode === "data" ? "Body measurements" : "Body parts"}</h2>
         {parts.map((p) => {
           const mine = rows.filter((r) => r.part === p.id);
           const last = mine[mine.length - 1];
           return (
-            <a key={p.id} className="start-row" href={`#/body/parts/${p.id}`}>
+            <a key={p.id} className="start-row" href={`${base}/${p.id}`}>
               <span>{p.label}</span>
               <span className="muted">{last ? `${show(p, last.value)} · ${formatDate(last.at)}` : "—"} ›</span>
             </a>
@@ -394,14 +449,18 @@ function BodyPartsTab({ part }: { part?: string }) {
     setEntry("");
     load();
   }
-  return (
-    <>
-      <a className="back-link" href="#/body/parts">
-        ‹ Body parts
-      </a>
-      <section className="card">
-        <h2 className="section-title">{sel.label}</h2>
-        <div className="row" style={{ marginTop: 0 }}>
+  const back = (
+    <a className="back-link" href={base}>
+      ‹ {mode === "data" ? "Body measurements" : "Body parts"}
+    </a>
+  );
+  if (mode === "data")
+    return (
+      <>
+        {back}
+        <section className="card">
+          <h2 className="section-title">{sel.label}</h2>
+          <div className="row" style={{ marginTop: 0 }}>
           <input
             className="num big-input"
             inputMode="decimal"
@@ -413,7 +472,44 @@ function BodyPartsTab({ part }: { part?: string }) {
           <button className="button primary" onClick={add} disabled={!Number(entry)}>
             + Add
           </button>
-        </div>
+          </div>
+          {mine.length > 1 && (
+            <a className="small" href={`#/body/charts/parts/${sel.id}`}>
+              Chart ›
+            </a>
+          )}
+        </section>
+        <section className="card">
+          {mine.length === 0 && <p className="muted small">No measurements yet.</p>}
+          {[...mine].reverse().map((r) => (
+            <button key={r.id} className="start-row" onClick={() => setEditing(r)}>
+              <span>
+                {formatDate(r.at)} <span className="muted small">{formatTime(r.at)}</span>
+                {pumped(r) && <span className="chip small-chip">pumped</span>}
+              </span>
+              <strong>{show(sel, r.value)}</strong>
+            </button>
+          ))}
+        </section>
+        {editing && (
+          <EntryEditor
+            title={`Edit ${sel.label.toLowerCase()}`}
+            unitLabel={unitLabel}
+            value={toDisplay(editing.value)}
+            at={editing.at}
+            onClose={() => setEditing(null)}
+            onSave={(v, at) => api.updateMeasurement(editing.id, at, sel.unit === "cm" && inches ? v * 2.54 : v).then(load)}
+            onDelete={() => api.deleteMeasurement(editing.id).then(load)}
+          />
+        )}
+      </>
+    );
+  return (
+    <>
+      {back}
+      <section className="card">
+        <h2 className="section-title">{sel.label}</h2>
+        {mine.length < 2 && <p className="muted small">Log two or more under Data & metrics › Body to see a chart.</p>}
         {mine.length > 1 && (
           <TimeSeriesChart series={partSeries} unit={unitLabel} height={200} title={sel.label} />
         )}
@@ -447,29 +543,6 @@ function BodyPartsTab({ part }: { part?: string }) {
           <p className="muted small">Against US adults of your sex and age group (CDC, 2015–2018).</p>
         </section>
       )}
-      <section className="card">
-        {mine.length === 0 && <p className="muted small">No measurements yet.</p>}
-        {[...mine].reverse().map((r) => (
-          <button key={r.id} className="start-row" onClick={() => setEditing(r)}>
-            <span>
-              {formatDate(r.at)} <span className="muted small">{formatTime(r.at)}</span>
-              {pumped(r) && <span className="chip small-chip">pumped</span>}
-            </span>
-            <strong>{show(sel, r.value)}</strong>
-          </button>
-        ))}
-      </section>
-      {editing && (
-        <EntryEditor
-          title={`Edit ${sel.label.toLowerCase()}`}
-          unitLabel={unitLabel}
-          value={toDisplay(editing.value)}
-          at={editing.at}
-          onClose={() => setEditing(null)}
-          onSave={(v, at) => api.updateMeasurement(editing.id, at, sel.unit === "cm" && inches ? v * 2.54 : v).then(load)}
-          onDelete={() => api.deleteMeasurement(editing.id).then(load)}
-        />
-      )}
     </>
   );
 }
@@ -485,15 +558,29 @@ function bandsOf(phases: Phase[]): Band[] {
 
 // ---- Bodyweight ---------------------------------------------------------------------------------------
 
-function BodyweightTab() {
+function BodyweightTab({ mode }: { mode: Mode }) {
   const { unit } = usePrefs();
   const [rows, setRows] = useState<WeighInRow[]>([]);
   const [phases, setPhases] = useState<Phase[]>([]);
   const [range, setRange] = useSavedRange("bodyweight");
-  const [showInbody, setShowInbody] = useState(true);
   const [entry, setEntry] = useState("");
   const [hide, setHide] = useState(false);
-  const [showTarget, setShowTarget] = useState(true);
+  // Remembered on this device.
+  const [showTarget, setShowTargetState] = useState(() => {
+    try {
+      return localStorage.getItem("weightGoalPace") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const setShowTarget = (on: boolean) => {
+    setShowTargetState(on);
+    try {
+      localStorage.setItem("weightGoalPace", on ? "on" : "off");
+    } catch {
+      /* storage unavailable */
+    }
+  };
   const [goals, setGoals] = useState<GoalStretch[]>([]);
   const [view, setView] = useState({ smooth: { on: false, span: 0.15 }, showBands: true });
   const load = () => api.weighIns(true).then(setRows);
@@ -506,9 +593,8 @@ function BodyweightTab() {
     return () => window.removeEventListener("goal-changed", loadGoals);
   }, []);
 
-  const inR = rows.filter((r) => inRange(r.at, range));
-  const regular = inR.filter((r) => r.source !== "inbody");
-  const inbody = inR.filter((r) => r.source === "inbody");
+  // Every weigh-in, whatever it came from (typed, a scale, Health Connect or a scan).
+  const regular = rows.filter((r) => inRange(r.at, range));
   const pts = (rs: WeighInRow[]): Point[] => rs.map((r) => ({ t: parseLocal(r.at), v: toUnit(r.weight_kg, unit) }));
   const series = [{ id: "bw", label: "Weigh-ins", points: pts(regular) }];
   // Each goal's target pace, for the goals that overlap the range.
@@ -518,7 +604,6 @@ function BodyweightTab() {
     (kg) => toUnit(kg, unit),
     new Date(),
   );
-  if (showInbody && inbody.length) series.push({ id: "inbody", label: "InBody scans", points: pts(inbody), style: "points" } as never);
 
   // Weekly average (last 7 days) and change over the range.
   const last7 = regular.filter((r) => parseLocal(r.at).getTime() > Date.now() - 7 * 86400000);
@@ -539,23 +624,30 @@ function BodyweightTab() {
     load();
   }
 
+  if (mode === "data")
+    return (
+      <>
+        <section className="card">
+          <div className="row" style={{ marginTop: 0 }}>
+            <input
+              className="num big-input"
+              inputMode="decimal"
+              placeholder={`Today's weight (${unit})`}
+              value={entry}
+              onChange={(e) => setEntry(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+            />
+            <button className="button primary" onClick={add} disabled={!Number(entry)}>
+              Log
+            </button>
+          </div>
+        </section>
+        <WeighInList rows={rows} unit={unit} onChanged={load} />
+      </>
+    );
+
   return (
     <>
-      <section className="card">
-        <div className="row" style={{ marginTop: 0 }}>
-          <input
-            className="num big-input"
-            inputMode="decimal"
-            placeholder={`Today's weight (${unit})`}
-            value={entry}
-            onChange={(e) => setEntry(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-          />
-          <button className="button primary" onClick={add} disabled={!Number(entry)}>
-            Log
-          </button>
-        </div>
-      </section>
       <section className="card">
         <div className="title-row">
           <h2 className="section-title">Bodyweight</h2>
@@ -590,9 +682,6 @@ function BodyweightTab() {
         <RangePicker value={range} onChange={setRange} phases={phases} />
         <div className="row small" style={{ marginTop: 0 }}>
           <label className="check">
-            <input type="checkbox" checked={showInbody} onChange={(e) => setShowInbody(e.target.checked)} /> Show InBody weights
-          </label>
-          <label className="check">
             <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} /> Hide numbers
           </label>
           {corridors.length > 0 && (
@@ -614,7 +703,7 @@ function BodyweightTab() {
         />
         {showTarget && corridors.length > 0 && (
           <p className="muted small" style={{ marginBottom: 0 }}>
-            The green area is where your weight would be at each goal's target rate, from where that goal began (for maintenance, within
+            The shaded band (Goal pace) is where your weight would be at each goal's target rate, from where that goal began (for maintenance, within
             1% of it). Inside it, you're on pace.
           </p>
         )}
@@ -650,7 +739,6 @@ function BodyweightTab() {
         </section>
       )}
       <PhaseSplitCard rows={rows} />
-      <WeighInList rows={rows} unit={unit} onChanged={load} />
     </>
   );
 }
@@ -688,35 +776,93 @@ function PhaseCompare({ goals, rows, unit }: { goals: GoalStretch[]; rows: Weigh
   );
 }
 
-/** Every weigh-in, newest first; tap one to fix it. */
+/** The scan taken with a weigh-in (same device moment, within a few minutes), if any. */
+function scanOf(r: WeighInRow, scans: InBodyScan[]): InBodyScan | undefined {
+  const t = parseLocal(r.at).getTime();
+  return scans.find((s) => Math.abs(parseLocal(s.measured_at_local).getTime() - t) <= 3 * 60000);
+}
+
+/** Every weigh-in, newest first. Tap one to fix it, or, when a scale or InBody scan came with it, to
+ *  see the full report. */
 function WeighInList({ rows, unit, onChanged }: { rows: WeighInRow[]; unit: "kg" | "lb"; onChanged: () => void }) {
   const [shown, setShown] = useState(30);
   const [editing, setEditing] = useState<WeighInRow | null>(null);
+  const [report, setReport] = useState<{ row: WeighInRow; scan: InBodyScan } | null>(null);
+  const [scanEdit, setScanEdit] = useState<InBodyScan | null>(null);
+  const [scans, setScans] = useState<InBodyScan[]>([]);
+  const [fields, setFields] = useState<InBodyField[]>([]);
+  const [profiles, setProfiles] = useState<ScaleProfile[]>([]);
+  const loadScans = () => api.inbodyScans().then(setScans);
+  useEffect(() => {
+    loadScans();
+    api.inbodyFields().then(setFields);
+    api.scaleProfiles().then(setProfiles);
+  }, [rows]);
   const list = [...rows].reverse();
   return (
     <section className="card">
-      <div className="section-label">Weigh-ins ({rows.length}) · tap one to edit</div>
-      {list.slice(0, shown).map((r) => (
-        <button
-          key={`${r.source}${r.id}`}
-          className="start-row"
-          disabled={r.source === "inbody"}
-          title={r.source === "inbody" ? "From an InBody scan: edit it under Body comp" : "Edit"}
-          onClick={() => setEditing(r)}
-        >
-          <span>
-            {formatDate(r.at)} <span className="muted small">{formatTime(r.at)}</span>
-            {r.source === "inbody" && <span className="chip">InBody</span>}
-          </span>
-          <strong>
-            {toUnit(r.weight_kg, unit).toFixed(1)} {unit}
-          </strong>
-        </button>
-      ))}
+      <div className="section-label">Weigh-ins ({rows.length}) · tap one for details or to edit</div>
+      {list.slice(0, shown).map((r) => {
+        const scan = scanOf(r, scans);
+        return (
+          <button
+            key={`${r.source}${r.id}`}
+            className="start-row"
+            onClick={() => (scan ? setReport({ row: r, scan }) : r.source !== "inbody" && setEditing(r))}
+          >
+            <span>
+              {formatDate(r.at)} <span className="muted small">{formatTime(r.at)}</span>
+              {scan && <span className="chip">{sourceName(profiles, scan.source)}</span>}
+            </span>
+            <span>
+              <strong>
+                {toUnit(r.weight_kg, unit).toFixed(1)} {unit}
+              </strong>
+              {scan?.values.pbf != null && <span className="muted small"> · {scan.values.pbf}%</span>}
+              {scan && <span className="muted"> ›</span>}
+            </span>
+          </button>
+        );
+      })}
       {list.length > shown && (
         <button className="button wide-btn" onClick={() => setShown(shown + 60)}>
           Show more
         </button>
+      )}
+      {report && (
+        <ScanReport
+          scan={report.scan}
+          scans={scans}
+          fields={fields}
+          profiles={profiles}
+          onClose={() => setReport(null)}
+          onEdit={() => {
+            setScanEdit(report.scan);
+            setReport(null);
+          }}
+          onEditWeight={
+            report.row.source !== "inbody"
+              ? () => {
+                  setEditing(report.row);
+                  setReport(null);
+                }
+              : undefined
+          }
+        />
+      )}
+      {scanEdit && (
+        <ScanForm
+          scan={scanEdit}
+          fields={fields}
+          unit={unit}
+          known={Object.keys(profiles.find((p) => p.id === scanEdit.source && p.id !== "inbody")?.labels ?? {})}
+          onClose={() => setScanEdit(null)}
+          onSaved={() => {
+            setScanEdit(null);
+            loadScans();
+            onChanged();
+          }}
+        />
       )}
       {editing && (
         <EntryEditor
@@ -730,6 +876,119 @@ function WeighInList({ rows, unit, onChanged }: { rows: WeighInRow[]; unit: "kg"
         />
       )}
     </section>
+  );
+}
+
+/** Fields a home scale reports beyond the InBody sheet's. */
+const HOME_FIELDS = ["muscle_mass_kg", "bone_mass_kg", "body_water_pct", "protein_pct", "skeletal_muscle_pct", "subcutaneous_fat_pct", "metabolic_age", "heart_rate_bpm"];
+const FIELD_GROUPS: [string, (f: InBodyField) => boolean][] = [
+  ["Body composition", (f) => !f.column.startsWith("lean_") && !f.column.startsWith("fat_") && !HOME_FIELDS.includes(f.column) && f.unit !== "ohm"],
+  ["More from the scale", (f) => HOME_FIELDS.includes(f.column)],
+  ["Segmental lean", (f) => f.column.startsWith("lean_")],
+  ["Segmental fat", (f) => f.column.startsWith("fat_")],
+  ["Raw impedance", (f) => f.unit === "ohm"],
+];
+
+/** A weigh-in's scan in full: every value it has, grouped, each against that device's previous scan,
+ *  and a chart of any of them over that device's scans ("scale data"). */
+function ScanReport({
+  scan,
+  scans,
+  fields,
+  profiles,
+  onClose,
+  onEdit,
+  onEditWeight,
+}: {
+  scan: InBodyScan;
+  scans: InBodyScan[];
+  fields: InBodyField[];
+  profiles: ScaleProfile[];
+  onClose: () => void;
+  onEdit: () => void;
+  onEditWeight?: () => void;
+}) {
+  const { unit } = usePrefs();
+  const src = scan.source ?? "inbody";
+  const device = sourceName(profiles, src);
+  const same = scans.filter((s) => (s.source ?? "inbody") === src);
+  const prev = [...same].reverse().find((s) => s.measured_at_local < scan.measured_at_local);
+  const has = fields.filter((f) => scan.values[f.column] != null);
+  const charted = has.filter((f) => same.filter((s) => s.values[f.column] != null).length > 1);
+  const [metric, setMetric] = useState(charted.find((f) => f.column === "pbf")?.column ?? charted[0]?.column ?? "");
+  const field = fields.find((f) => f.column === metric);
+  const display = (f: InBodyField, v: number) => (f.unit === "kg" ? toUnit(v, unit) : v);
+  const change = (f: InBodyField) => {
+    const a = prev?.values[f.column];
+    const b = scan.values[f.column];
+    if (a == null || Math.abs(b - a) < 1e-9) return "";
+    const d = display(f, b) - display(f, a);
+    return `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(f.unit === "kcal" || f.unit === "ohm" ? 0 : 1)}`;
+  };
+  return (
+    <Modal title={`${device}: ${formatDate(scan.measured_at_local)} ${formatTime(scan.measured_at_local)}`} onClose={onClose} wide>
+      {FIELD_GROUPS.map(([title, pred]) => {
+        const fs = has.filter(pred);
+        if (!fs.length) return null;
+        return (
+          <details key={title} open={title !== "Raw impedance"}>
+            <summary className="section-label">{title}</summary>
+            <table className="table small">
+              <tbody>
+                {fs.map((f) => (
+                  <tr key={f.column}>
+                    <td>{f.label}</td>
+                    <td>
+                      <strong>{showValue(f, scan.values[f.column], unit)}</strong>
+                    </td>
+                    <td className="muted">{change(f)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        );
+      })}
+      {prev && <p className="muted small">Changes are since your previous {device} reading ({formatDate(prev.measured_at_local)}).</p>}
+      {scan.notes && <p className="muted small">{scan.notes}</p>}
+      {charted.length > 0 && field && (
+        <>
+          <div className="section-label">Scale data: {device}</div>
+          <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
+            {charted.map((f) => (
+              <option key={f.column} value={f.column}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <TimeSeriesChart
+            title={`${field.label} (${device})`}
+            series={[
+              {
+                id: metric,
+                label: field.label,
+                points: same.filter((s) => s.values[metric] != null).map((s) => ({ t: parseLocal(s.measured_at_local), v: display(field, s.values[metric]) })),
+              },
+            ]}
+            unit={field.unit === "kg" ? unit : field.unit === "pct" ? "%" : field.unit === "ohm" ? "Ω" : field.unit === "kcal" ? "kcal" : ""}
+            height={200}
+          />
+        </>
+      )}
+      <div className="row">
+        <button className="button" onClick={onEdit}>
+          Edit scan
+        </button>
+        {onEditWeight && (
+          <button className="button" onClick={onEditWeight}>
+            Edit weight
+          </button>
+        )}
+        <button className="button primary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -817,12 +1076,16 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 // ---- InBody -------------------------------------------------------------------------------------------
 
-function InBodyTab() {
+/** Body-composition scans from every device: adding and importing them, and the list (data), or
+ *  their charts (charts). */
+function InBodyTab({ mode }: { mode: Mode }) {
   const { unit } = usePrefs();
   const [fields, setFields] = useState<InBodyField[]>([]);
   const [scans, setScans] = useState<InBodyScan[]>([]);
   const [phases, setPhases] = useState<Phase[]>([]);
   const [editing, setEditing] = useState<InBodyScan | null>(null);
+  const [report, setReport] = useState<InBodyScan | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [flagged, setFlagged] = useState<string[]>([]);
   const [review, setReview] = useState<{ scan: InBodyScan; doubtful: string[] }[]>([]);
   const [reading, setReading] = useState<string | null>(null);
@@ -839,7 +1102,10 @@ function InBodyTab() {
     }
   });
   const load = () => {
-    api.inbodyScans().then(setScans);
+    api.inbodyScans().then((x) => {
+      setScans(x);
+      setLoaded(true);
+    });
   };
   const loadProfiles = () => api.scaleProfiles().then(setProfiles);
   useEffect(() => {
@@ -966,6 +1232,36 @@ function InBodyTab() {
     setReview(rest);
   };
 
+  if (mode === "charts")
+    return !loaded ? null : scans.length === 0 ? (
+      <p className="empty">No scans yet. Add them under Data & metrics › Scans.</p>
+    ) : (
+      <>
+        <section className="card">
+          <div className="title-row">
+            <h2 className="section-title">Body composition: any metric</h2>
+            <ShareButton kind="inbody" />
+          </div>
+          <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
+            {available.map((f) => (
+              <option key={f.column} value={f.column}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <TimeSeriesChart
+            title={fieldOf(metric)?.label ?? metric}
+            series={series(metric)}
+            unit={unitLabel2(fieldOf(metric))}
+            bands={bandsOf(phases)}
+            height={220}
+          />
+        </section>
+        <Segmental scans={scans} unit={unit} />
+        <ImpedanceCard scans={scans} profiles={profiles} unit={unit} />
+      </>
+    );
+
   return (
     <>
       <section className="card">
@@ -1014,43 +1310,14 @@ function InBodyTab() {
         {reading && <p className="small">{reading}</p>}
         {msg && <p className="success small">{msg}</p>}
       </section>
-      {scans.length === 0 ? (
+      {!loaded ? null : scans.length === 0 ? (
         <p className="empty">No scans yet. Weigh in on your scale, read a screenshot or result sheet, or import a CSV.</p>
       ) : (
         <>
           <section className="card">
-            <div className="title-row">
-              <h2 className="section-title">Body composition: any metric</h2>
-              <ShareButton kind="inbody" />
-            </div>
-            <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
-              {available.map((f) => (
-                <option key={f.column} value={f.column}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            <TimeSeriesChart
-              title={fieldOf(metric)?.label ?? metric}
-              series={series(metric)}
-              unit={unitLabel2(fieldOf(metric))}
-              bands={bandsOf(phases)}
-              height={220}
-            />
-          </section>
-          <Segmental scans={scans} unit={unit} />
-          <ImpedanceCard scans={scans} profiles={profiles} unit={unit} />
-          <section className="card">
             <div className="section-label">Scans</div>
             {[...scans].reverse().map((s) => (
-              <div
-                key={s.id}
-                className="start-row"
-                onClick={() => {
-                  setFlagged([]);
-                  setEditing(s);
-                }}
-              >
+              <div key={s.id} className="start-row" onClick={() => setReport(s)}>
                 <span>
                   {formatDate(s.measured_at_local)}
                   {sources.length > 1 && <span className="chip">{sourceName(profiles, s.source)}</span>}
@@ -1061,11 +1328,25 @@ function InBodyTab() {
                     {s.values.smm_kg != null && ` · SMM ${toUnit(s.values.smm_kg, unit).toFixed(1)}`}
                   </span>
                 </span>
-                <span className="muted">Edit ›</span>
+                <span className="muted">Details ›</span>
               </div>
             ))}
           </section>
         </>
+      )}
+      {report && (
+        <ScanReport
+          scan={report}
+          scans={scans}
+          fields={fields}
+          profiles={profiles}
+          onClose={() => setReport(null)}
+          onEdit={() => {
+            setFlagged([]);
+            setEditing(report);
+            setReport(null);
+          }}
+        />
       )}
       {editing && (
         <ScanForm
@@ -1518,7 +1799,8 @@ function CsvMapper({
 
 // ---- Diet ----------------------------------------------------------------------------------------------
 
-function DietTab() {
+/** Calories and protein: logging them (data), or energy balance from the weight trend (charts). */
+function DietTab({ mode }: { mode: Mode }) {
   const { unit } = usePrefs();
   const [days, setDays] = useState<DietDay[]>([]);
   const [energy, setEnergy] = useState<EnergyPoint[]>([]);
@@ -1564,8 +1846,10 @@ function DietTab() {
   const trend = e.map((p) => ({ t: d(p.date), v: toUnit(p.trend_kg, unit) }));
   const bands = useMemo(() => bandsOf(phases), [phases]);
 
-  return (
-    <>
+  const logged = days.filter((x) => x.calories != null || x.protein_g != null).reverse();
+  if (mode === "data")
+    return (
+      <>
       <section className="card">
         <p className="muted small">Optional. Log whatever you track; days don't need to match weigh-ins.</p>
         <div className="form-row">
@@ -1586,6 +1870,25 @@ function DietTab() {
           </button>
         </div>
       </section>
+      {logged.length > 0 && (
+        <section className="card">
+          <div className="section-label">Logged days · tap one to change it</div>
+          {logged.slice(0, 30).map((x) => (
+            <button key={x.date} className="start-row" onClick={() => setDate(x.date)}>
+              <span>{formatDate(x.date)}</span>
+              <span>
+                {x.calories != null && <strong>{x.calories.toLocaleString()} kcal</strong>}
+                {x.protein_g != null && <span className="muted"> · {x.protein_g} g protein</span>}
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+      </>
+    );
+
+  return (
+    <>
       <section className="card">
         <h2 className="section-title">Energy balance</h2>
         <div className="stats-row">

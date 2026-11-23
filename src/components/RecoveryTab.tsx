@@ -31,7 +31,7 @@ export function RecoveryLine() {
   const text = latestRecoveryText(days, today());
   if (!text) return null;
   return (
-    <a className="small muted recovery-line" href="#/body/recovery">
+    <a className="small muted recovery-line" href="#/body/charts/recovery">
       {text} ›
     </a>
   );

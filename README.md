@@ -107,6 +107,10 @@ from **Settings → Import, export & backup → Restore…**.
 
 ### Body
 
+Measure has two tabs: **Data & metrics** (weigh-ins and your goal, your profile and body
+measurements, scans, calories) and **Charts** (weight, body composition, body parts, calories,
+recovery).
+
 - **Bodyweight** with a 7-day average, change per week, a goal (cut, maintain or gain) with a
   weekly target, and weigh-in reminders on the days and times you choose.
 - **Body parts:** log any measurement (waist, neck, arms, …) and chart it. Readings taken within 6
@@ -117,11 +121,12 @@ from **Settings → Import, export & backup → Restore…**.
   alongside US Navy and relative-fat-mass tape estimates.
 - **Home body-composition scales** (Arboleaf and other QN-Scale models so far): weigh in over
   **Bluetooth** on Android, read the scale app's screenshots, or pick up its body fat, lean, bone
-  and water mass from Health Connect. Each device's scans are charted as their own line (BIA devices
-  don't agree with each other), analyses use one device you choose, and raw impedance is kept. A
-  scale weigh-in is also your weigh-in for the day. Pick the scale as your quick weigh-in in
-  Settings for a one-tap **⚖ Weigh in** on Today and at the top of Measure. Set the scale up once
-  in its own app (you as its first user), then close that app while weighing in with FitLedger; no
+  and water mass from Health Connect. Scans from every device are charted and analysed together,
+  and raw impedance is kept. A scale weigh-in is also your weigh-in for the day; tap it in the
+  weigh-in list for the full report and a chart of any of the scale's values. Under Settings ›
+  Scale, pick the scale for a one-tap **⚖ Weigh in** on Workouts and at the top of Measure: it finds
+  the scale and connects by itself, and remembers it after the first time. Set the scale up once in
+  its own app (you as its first user), then close that app while weighing in with FitLedger; no
   Android Bluetooth pairing is needed. New scales usually need only a
   [scale profile](data/scales/README.md), not code.
 - **Shared scales:** each person picks their own user number on the scale in their own copy of

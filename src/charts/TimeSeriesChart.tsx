@@ -585,16 +585,26 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
               <path
                 d={`M${xa},${y(c.v0 + c.half)} L${xb},${y(c.v0 + c.half + c.hi * days)} L${xb},${y(c.v0 - c.half + c.lo * days)} L${xa},${y(c.v0 - c.half)} Z`}
                 fill={theme.categorical[2]}
-                fillOpacity={0.16}
+                fillOpacity={0.08}
                 stroke={theme.categorical[2]}
-                strokeOpacity={0.5}
-                strokeWidth={fs}
+                strokeOpacity={0.35}
+                strokeWidth={0.75 * fs}
+                strokeDasharray={`${4 * fs} ${3 * fs}`}
               >
                 <title>{c.label}</title>
               </path>
             </g>
           );
         })}
+        {/* Labelled in the plot itself, so exported images say what the band is. */}
+        {Boolean(props.corridors?.length) && (
+          <text x={margin.left + 6 * fs} y={height - margin.bottom - 6 * fs} fontSize={11 * fs} fill={theme.muted}>
+            <tspan fill={theme.categorical[2]} fillOpacity={0.6}>
+              ▬
+            </tspan>{" "}
+            Goal pace (target rate)
+          </text>
+        )}
 
         {div && (
           <>

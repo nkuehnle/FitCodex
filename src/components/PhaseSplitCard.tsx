@@ -90,7 +90,7 @@ export function PhaseSplitCard({ rows }: { rows: WeighInRow[] }) {
           This needs two readings of the same kind at least 3 weeks apart: body-composition scans from one device, or waist and neck with a weigh-in the same week.{" "}
           {!g.end_date && (
             <>
-              <a href="#/body/parts">Measure now</a> to have a starting point.
+              <a href="#/body/data/body">Measure now</a> to have a starting point.
             </>
           )}
         </p>

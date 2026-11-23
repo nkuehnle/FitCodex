@@ -138,7 +138,7 @@ export default function App() {
     },
   };
 
-  const [section, a, b] = route.split("/").filter(Boolean);
+  const [section, a, b, c] = route.split("/").filter(Boolean);
   let page;
   switch (section) {
     case "workout":
@@ -158,7 +158,7 @@ export default function App() {
       page = <CardioPage log={a === "log"} />;
       break;
     case "body":
-      page = <BodyPage tab={((a === "fat" ? "inbody" : a) as "weight" | "inbody" | "diet" | "parts" | "recovery") ?? "weight"} part={b} />;
+      page = <BodyPage path={[a, b, c].filter(Boolean)} />;
       break;
     case "plan":
       page = (

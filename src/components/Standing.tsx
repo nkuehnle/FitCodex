@@ -38,7 +38,7 @@ export function parseAges(setting: string | null): number[] {
 export function ProfileHint() {
   return (
     <p className="muted small">
-      Set sex, height and birth year under <a href="#/body/inbody">Measure → Body comp</a> to see how you compare with other adults.
+      Set sex, height and birth year under <a href="#/body/data/body">Measure → Data &amp; metrics → Body</a> to see how you compare with other adults.
     </p>
   );
 }

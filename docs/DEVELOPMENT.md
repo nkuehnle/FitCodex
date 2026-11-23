@@ -96,7 +96,7 @@ Exports and backups on Android save to `Download/FitLedger` (or open the share s
 automatic backup (`fitledger-auto-<date>.fitledger`, newest 4 kept) goes to the same folder, or to
 `auto-backups/` in the app data folder on desktop; it can be turned off on the Data page.
 
-**InBody result sheets.** Measure → Body comp → **Read sheet images** reads InBody 580 result
+**InBody result sheets.** Measure → Data & metrics → Scans → **Read images** reads InBody 580 result
 sheets saved as PNG/JPEG on the device (`crates/ocr`, using the
 [Ocrs](https://github.com/robertknight/ocrs) engine). The models aren't bundled: the first read
 downloads them (12 MB) into `ocr-models/` in the app data folder and checks their SHA-256
@@ -175,7 +175,7 @@ sources, which aren't kept in git (the script's header says where to get them):
   `src/components/Standing.tsx`).
 
 Age comes from the birth year and the profile (sex, height, birth year) is set on Measure →
-Body comp.
+Data & metrics → Body.
 
 ## Demo data and screenshots
 
