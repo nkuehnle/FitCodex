@@ -789,6 +789,10 @@ i.dot {
 }
 .range-picker {
   margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.range-picker select {
+  max-width: 100%;
 }
 .chips-row {
   display: flex;

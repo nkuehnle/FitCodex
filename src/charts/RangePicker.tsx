@@ -75,7 +75,18 @@ export function inRange(dateStr: string, r: Range): boolean {
   return (!r.from || d >= r.from) && (!r.to || d <= r.to);
 }
 
-/** One row of range chips (presets, phases, custom), shared by every chart page. */
+const dayLabel = (d: string) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+/** A phase with its dates, e.g. "Maintain · Mar 3, 2026 – May 1, 2026". */
+export function phaseLabel(p: Phase): string {
+  return `${p.name} · ${dayLabel(p.start_date)} – ${p.end_date ? dayLabel(p.end_date) : "now"}`;
+}
+
+type Kind = "time" | "program" | "nutrition" | "custom";
+
+/** Which range a chart shows, as two dropdowns shared by every chart page: what to go by (time, a
+ *  workout routine, a cut / maintain / gain goal, or custom dates), then which one. */
 export function RangePicker({
   value,
   onChange,
@@ -87,43 +98,59 @@ export function RangePicker({
   phases?: Phase[];
   presets?: string[];
 }) {
-  const custom = value.key === "custom";
+  const byLane = (lane: Phase["lane"]) =>
+    phases.filter((p) => p.lane === lane && p.id != null).sort((a, b) => b.start_date.localeCompare(a.start_date));
+  const lists: Record<"program" | "nutrition", Phase[]> = { program: byLane("program"), nutrition: byLane("nutrition") };
+  const current = value.key.startsWith("phase-") ? phases.find((p) => `phase-${p.id}` === value.key) : undefined;
+  const kind: Kind = value.key === "custom" ? "custom" : current ? current.lane : "time";
+  const choose = (k: Kind) => {
+    if (k === "time") onChange(presetRange(presets.includes("all") ? "all" : presets[presets.length - 1]));
+    else if (k === "custom") onChange({ key: "custom", from: value.from ?? daysAgo(90), to: value.to, label: "Custom" });
+    else if (lists[k][0]) onChange(phaseRange(lists[k][0]));
+  };
   return (
-    <div className="range-picker">
-      <div className="chips-row">
-        {presets.map((k) => {
-          const p = presetRange(k);
-          return (
-            <button key={k} className={value.key === k ? "chip-btn active" : "chip-btn"} onClick={() => onChange(p)}>
-              {p.label}
-            </button>
-          );
-        })}
-        {phases.map((p) => (
-          <button
-            key={p.id}
-            className={value.key === `phase-${p.id}` ? "chip-btn active" : "chip-btn"}
-            onClick={() => onChange(phaseRange(p))}
-          >
-            {p.name}
-          </button>
-        ))}
-        <button
-          className={custom ? "chip-btn active" : "chip-btn"}
-          onClick={() => onChange({ key: "custom", from: value.from ?? daysAgo(90), to: value.to, label: "Custom" })}
+    <div className="range-picker row small">
+      <select className="select inline" aria-label="Show by" value={kind} onChange={(e) => choose(e.target.value as Kind)}>
+        <option value="time">By time</option>
+        {lists.program.length > 0 && <option value="program">By routine</option>}
+        {lists.nutrition.length > 0 && <option value="nutrition">By goal (cut / maintain / gain)</option>}
+        <option value="custom">Custom dates</option>
+      </select>
+      {kind === "time" && (
+        <select className="select inline" aria-label="Time span" value={value.key} onChange={(e) => onChange(presetRange(e.target.value))}>
+          {presets.map((k) => (
+            <option key={k} value={k}>
+              {presetRange(k).label}
+            </option>
+          ))}
+        </select>
+      )}
+      {(kind === "program" || kind === "nutrition") && (
+        <select
+          className="select inline"
+          aria-label={kind === "program" ? "Routine" : "Goal"}
+          value={value.key}
+          onChange={(e) => {
+            const p = phases.find((x) => `phase-${x.id}` === e.target.value);
+            if (p) onChange(phaseRange(p));
+          }}
         >
-          Custom…
-        </button>
-      </div>
-      {custom && (
-        <div className="row small">
+          {lists[kind].map((p) => (
+            <option key={p.id} value={`phase-${p.id}`}>
+              {phaseLabel(p)}
+            </option>
+          ))}
+        </select>
+      )}
+      {kind === "custom" && (
+        <>
           <label>
             From <input type="date" value={value.from ?? ""} onChange={(e) => onChange({ ...value, from: e.target.value || null })} />
           </label>
           <label>
             To <input type="date" value={value.to ?? ""} onChange={(e) => onChange({ ...value, to: e.target.value || null })} />
           </label>
-        </div>
+        </>
       )}
     </div>
   );
