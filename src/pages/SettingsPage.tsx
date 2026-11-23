@@ -1,8 +1,9 @@
+import { GETTING_STARTED_KEY } from "../components/GettingStarted";
 import { useEffect, useState } from "react";
 import { usePrefs, type Theme } from "../App";
 import { api, type WeightUnit } from "../api";
 import { ScaleSettings } from "../components/ScaleTools";
-import { ReportCard } from "../components/ReportCard";
+import { PdfReportCard, ReportCard } from "../components/ReportCard";
 import { WearablesCard } from "../components/WearablesCard";
 import { IS_ANDROID } from "../platform";
 import { loadWeighInPlan, saveWeighInPlan, type WeighInPlan } from "../weighIn";
@@ -197,6 +198,7 @@ export default function SettingsPage() {
           Count warm-up sets in stats and PRs
         </label>
       </section>
+      <PdfReportCard />
       <ReportCard />
       <section className="card">
         <h2 className="section-title">Data</h2>
@@ -214,6 +216,12 @@ export default function SettingsPage() {
       <section className="card">
         <h2 className="section-title">About</h2>
         <p className="small">FitCodex keeps everything on this device. No account, no server.</p>
+        <button
+          className="button small"
+          onClick={() => api.setSetting(GETTING_STARTED_KEY, "shown").then(() => (window.location.hash = "#/history"))}
+        >
+          Show the getting started guide
+        </button>
         <p className="small muted">
           The exercise library includes exercises from{" "}
           <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">

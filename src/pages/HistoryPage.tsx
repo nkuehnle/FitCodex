@@ -1,3 +1,4 @@
+import { GettingStarted } from "../components/GettingStarted";
 import { ask, TextPrompt } from "../components/Modal";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -56,6 +57,7 @@ export default function HistoryPage({ selectedId, view }: { selectedId: number |
             ))}
           </div>
         </div>
+        <GettingStarted />
         <TodayCard />
         <StartPanel />
         {mode === "feed" ? <Feed selectedId={selectedId} /> : <CalendarView selectedId={selectedId} />}

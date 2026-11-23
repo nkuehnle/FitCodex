@@ -15,19 +15,25 @@ phone (Android) and desktop (Linux, Windows).
 </p>
 <p>
   <img src="docs/screenshots/body-map.png" width="270" alt="Body map of muscles trained">
-  <img src="docs/screenshots/bodyweight.png" width="270" alt="Bodyweight chart with goals, phases and InBody scans">
-  <img src="docs/screenshots/body-composition.png" width="270" alt="Body fat from InBody and tape estimates">
+  <img src="docs/screenshots/bodyweight.png" width="270" alt="Bodyweight chart with goal pace and phases">
+  <img src="docs/screenshots/body-composition.png" width="270" alt="Body fat from scale scans and tape estimates">
 </p>
 
 <sub>Screenshots use made-up demo data (`cargo run -p fitledger-core --example demo_data`).</sub>
 
 ## Install
 
-**Android:** download `fitledger-<version>.apk` from the latest
+**Android:** download `fitcodex-<version>.apk` from the latest
 [release](https://github.com/nkuehnle/FitCodex/releases), open it on your phone, and allow
 installing from your browser or Files app when Android asks. New versions install over the old one,
 and your data stays. (The APK is for 64-bit ARM phones, which is nearly every phone made since about
 2017.)
+
+**New to FitCodex:** a short **Getting started** list on the Workouts tab walks you through
+units, a routine, your profile, a weight goal and your first workout, ticking itself off as you
+go. Hide it any time; Settings › About brings it back.
+
+<img src="docs/screenshots/getting-started.png" width="270" alt="Getting started checklist for a new user">
 
 **Coming from Strong:** export your data in Strong (Settings → Export data), then import the CSV in
 FitCodex under **Settings → Import, export & backup**. Body measurements from Strong import too.
@@ -157,6 +163,21 @@ calories).
 
 <img src="docs/screenshots/share-card.png" width="320" alt="A workout shared as an image card">
 
+### PDF reports
+
+- **A 2–3 page PDF** from Settings for any time span, routine or goal phase: weight with goal pace,
+  calorie surplus / deficit, body composition and measurements, strength and training, and
+  recovery. Pick the sections you want; empty ones are left out.
+- **Phases compared:** a report for a cut, gain or maintenance puts it beside the phases just
+  before it (rate against target, lean and fat change, calories, workouts, strength).
+- Made on your phone, always on a white page for printing, then shared or saved to
+  `Download/FitCodex`.
+
+<p>
+  <img src="docs/screenshots/report-1.png" width="400" alt="PDF report, page 1: weight, calories and goal phases">
+  <img src="docs/screenshots/report-2.png" width="400" alt="PDF report, page 2: body composition and strength">
+</p>
+
 ### Watches and health apps
 
 - **Health Connect** sync on Android: FitCodex reads what your watch or ring app shares with
@@ -178,7 +199,7 @@ calories).
   Automatic backups run when you open the app or finish a workout, and a failed one shows a warning.
 - **Safe restores:** a safety copy of your current data is saved before any restore.
 - **Exports:** Strong-format workout CSV, bodyweight, InBody, measurements, diet, a full JSON
-  export, and a written progress report covering 4, 8 or 12 weeks.
+  export, and a written (Markdown) progress report covering 4, 8 or 12 weeks.
 - **kg or lb**, light or dark theme.
 
 ## License

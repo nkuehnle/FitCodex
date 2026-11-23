@@ -43,6 +43,37 @@ fn avg(values: impl Iterator<Item = f64>) -> Option<f64> {
     (n > 0).then(|| sum / n as f64)
 }
 
+/// One lift in a report: best e1RM (kg) in each half of the period.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LiftRow {
+    pub name: String,
+    pub per_hand: bool,
+    pub sets: usize,
+    pub first_kg: Option<f64>,
+    pub second_kg: Option<f64>,
+    pub best_kg: f64,
+    pub best_reps: i64,
+    pub prs: usize,
+}
+
+/// What the PDF report needs from the database for one date range. Masses in kg.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReportNumbers {
+    pub weeks: f64,
+    pub workouts: usize,
+    pub sets: usize,
+    pub avg_duration_min: Option<f64>,
+    /// Typical change in e1RM, first half to second half, over the lifts with both.
+    pub median_change: Option<f64>,
+    pub lifts: Vec<LiftRow>,
+    pub intake_kcal: Option<f64>,
+    pub intake_days: usize,
+    pub protein_g: Option<f64>,
+    pub sleep_h: Option<f64>,
+    pub resting_hr: Option<f64>,
+    pub hrv_ms: Option<f64>,
+}
+
 struct Period {
     from: NaiveDate,
     to: NaiveDate,
@@ -156,7 +187,42 @@ impl Db {
     }
 
     fn strength_section(&self, p: &Period, formula: Formula) -> Result<Option<String>> {
-        let sets = self.work_sets(None, Some(&p.from.to_string()), Some(&p.to.to_string()))?;
+        let lifts = self.lift_rows(p.from, p.to, formula)?;
+        if lifts.is_empty() {
+            return Ok(None);
+        }
+        let shown = |v: Option<f64>| v.map_or("n/a".to_string(), |v| n1(p.unit.from_kg(v)));
+        let rows: Vec<String> = lifts
+            .into_iter()
+            .map(|l| {
+                let change = match (l.first_kg, l.second_kg) {
+                    (Some(a), Some(b)) if a > 0.0 => format!("{}%", signed((b - a) / a * 100.0)),
+                    _ => "n/a".to_string(),
+                };
+                let name = if l.per_hand { format!("{} (per hand)", l.name) } else { l.name };
+                format!(
+                    "| {name} | {} | {} | {} | {change} | {} × {} | {} |",
+                    l.sets,
+                    shown(l.first_kg),
+                    shown(l.second_kg),
+                    p.weight(l.best_kg),
+                    l.best_reps,
+                    l.prs,
+                )
+            })
+            .collect();
+        let u = p.unit_name();
+        Ok(Some(format!(
+            "## Strength\n\nMost-trained lifts. Each e1RM is the best in that half of the period.\n\n\
+             | Exercise | Sets | e1RM first half ({u}) | e1RM second half ({u}) | Change | Best set | PRs |\n\
+             |---|---|---|---|---|---|---|\n{}\n",
+            rows.join("\n")
+        )))
+    }
+
+    /// The most-trained weight-and-reps lifts from `from` to `to`, with the best e1RM in each half.
+    fn lift_rows(&self, from: NaiveDate, to: NaiveDate, formula: Formula) -> Result<Vec<LiftRow>> {
+        let sets = self.work_sets(None, Some(&from.to_string()), Some(&to.to_string()))?;
         let mut by_exercise: HashMap<i64, Vec<&WorkSet>> = HashMap::new();
         for set in &sets {
             if let Some(id) = set.exercise_id {
@@ -166,7 +232,7 @@ impl Db {
         let mut ranked: Vec<(i64, Vec<&WorkSet>)> = by_exercise.into_iter().collect();
         ranked.sort_by_key(|(id, sets)| (std::cmp::Reverse(sets.len()), *id));
 
-        let mid = p.from + Duration::days(p.weeks * 7 / 2);
+        let mid = from + Duration::days(((to - from).num_days() + 1) / 2);
         let mut prs: HashMap<i64, usize> = HashMap::new();
         let mut workouts: Vec<i64> = sets.iter().map(|s| s.workout_id).collect();
         workouts.sort();
@@ -186,36 +252,54 @@ impl Db {
             let est = |s: &&WorkSet| Some((e1rm(s.weight_kg?, s.reps?, formula)?, s.weight_kg?, s.reps?));
             let best = |early: bool| sets.iter().filter(|s| (s.date() < mid) == early).filter_map(est).map(|e| e.0).fold(None, |a: Option<f64>, b| Some(a.map_or(b, |a| a.max(b))));
             let Some(top) = sets.iter().filter_map(est).max_by(|a, b| a.0.total_cmp(&b.0)) else { continue };
-            let (first, second) = (best(true), best(false));
-            let change = match (first, second) {
-                (Some(a), Some(b)) if a > 0.0 => format!("{}%", signed((b - a) / a * 100.0)),
-                _ => "n/a".to_string(),
-            };
-            let shown = |v: Option<f64>| v.map_or("n/a".to_string(), |v| n1(p.unit.from_kg(v)));
-            let name = if info.load_mode == "per_hand" { format!("{} (per hand)", info.name) } else { info.name };
-            rows.push(format!(
-                "| {name} | {} | {} | {} | {change} | {} × {} | {} |",
-                sets.len(),
-                shown(first),
-                shown(second),
-                p.weight(top.1),
-                top.2,
-                prs.get(&id).copied().unwrap_or(0),
-            ));
+            rows.push(LiftRow {
+                name: info.name,
+                per_hand: info.load_mode == "per_hand",
+                sets: sets.len(),
+                first_kg: best(true),
+                second_kg: best(false),
+                best_kg: top.1,
+                best_reps: top.2,
+                prs: prs.get(&id).copied().unwrap_or(0),
+            });
             if rows.len() == TOP_EXERCISES {
                 break;
             }
         }
-        if rows.is_empty() {
-            return Ok(None);
-        }
-        let u = p.unit_name();
-        Ok(Some(format!(
-            "## Strength\n\nMost-trained lifts. Each e1RM is the best in that half of the period.\n\n\
-             | Exercise | Sets | e1RM first half ({u}) | e1RM second half ({u}) | Change | Best set | PRs |\n\
-             |---|---|---|---|---|---|---|\n{}\n",
-            rows.join("\n")
-        )))
+        Ok(rows)
+    }
+
+    /// Numbers for a PDF report over `from`–`to` (inclusive): training, strength, nutrition and
+    /// recovery. Charts and body data come from the app's own chart data.
+    pub fn report_numbers(&self, from: NaiveDate, to: NaiveDate) -> Result<ReportNumbers> {
+        let days = ((to - from).num_days() + 1).max(1);
+        let weeks = days as f64 / 7.0;
+        let has = |at: &str| at.get(..10).is_some_and(|d| d >= from.to_string().as_str() && d <= to.to_string().as_str());
+        let workouts: Vec<_> = self.workout_series()?.into_iter().filter(|w| has(&w.at)).collect();
+        let lifts = self.lift_rows(from, to, self.formula()?)?;
+        let mut changes: Vec<f64> =
+            lifts.iter().filter_map(|l| match (l.first_kg, l.second_kg) { (Some(a), Some(b)) if a > 0.0 => Some(b / a - 1.0), _ => None }).collect();
+        changes.sort_by(f64::total_cmp);
+        let median_change = (!changes.is_empty()).then(|| {
+            let n = changes.len();
+            if n % 2 == 1 { changes[n / 2] } else { (changes[n / 2 - 1] + changes[n / 2]) / 2.0 }
+        });
+        let diet: Vec<_> = self.diet_days()?.into_iter().filter(|d| has(&d.date)).collect();
+        let health: Vec<_> = self.day_health()?.into_iter().filter(|d| has(&d.date)).collect();
+        Ok(ReportNumbers {
+            weeks,
+            workouts: workouts.len(),
+            sets: workouts.iter().map(|w| w.sets).sum(),
+            avg_duration_min: avg(workouts.iter().filter_map(|w| w.duration_s).map(|d| d as f64 / 60.0)),
+            median_change,
+            lifts,
+            intake_kcal: avg(diet.iter().filter_map(|d| d.calories)),
+            intake_days: diet.iter().filter(|d| d.calories.is_some()).count(),
+            protein_g: avg(diet.iter().filter_map(|d| d.protein_g)),
+            sleep_h: avg(health.iter().filter_map(|d| d.sleep_s).map(|s| s as f64 / 3600.0)),
+            resting_hr: avg(health.iter().filter_map(|d| d.resting_hr).map(|v| v as f64)),
+            hrv_ms: avg(health.iter().filter_map(|d| d.hrv_ms)),
+        })
     }
 
     fn volume_section(&self, p: &Period) -> Result<Option<String>> {
@@ -408,6 +492,22 @@ mod tests {
             assert!(!r.to_lowercase().contains(&word.to_lowercase()), "{word} in {r}");
         }
         assert!(r.contains("## Strength"), "{r}");
+    }
+
+    #[test]
+    fn report_numbers_cover_the_range() {
+        let n = logged().report_numbers(today() - Duration::days(55), today()).unwrap();
+        assert_eq!(n.workouts, 2);
+        assert_eq!(n.lifts.len(), 1);
+        let l = &n.lifts[0];
+        assert!((l.first_kg.unwrap() - 116.67).abs() < 0.01 && (l.second_kg.unwrap() - 128.33).abs() < 0.01, "{l:?}");
+        assert!((n.median_change.unwrap() - 0.1).abs() < 0.001);
+        assert_eq!(n.intake_kcal, Some(2500.0));
+        assert_eq!(n.intake_days, 1);
+        assert!(n.sleep_h.is_none());
+        let empty = logged().report_numbers(today() - Duration::days(400), today() - Duration::days(300)).unwrap();
+        assert_eq!(empty.workouts, 0);
+        assert!(empty.lifts.is_empty() && empty.median_change.is_none());
     }
 
     #[test]

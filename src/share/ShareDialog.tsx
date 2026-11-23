@@ -38,7 +38,17 @@ export function ShareButton(props: ShareKind & { icon?: boolean }) {
     <>
       {props.icon ? (
         <button className="icon-btn chart-expand" title="Share as image" aria-label="Share as image" onClick={() => setOpen(true)}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
           </svg>
         </button>
@@ -177,7 +187,9 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
   return (
     <Modal title="Share as image" onClose={onClose} wide>
       <div className="share-layout">
-        <div className="share-preview">{png ? <img src={png} alt="Preview" /> : <div className="muted small">{msg ?? "Rendering…"}</div>}</div>
+        <div className="share-preview">
+          {png ? <img src={png} alt="Preview" /> : <div className="muted small">{msg ?? "Rendering…"}</div>}
+        </div>
         <div className="share-options">
           <div className="row">
             {/* Android's WebView has no navigator.share; the native share sheet is always there. */}
@@ -350,9 +362,6 @@ function composeSvg(o: {
     );
     vy += h + 16;
   }
-  parts.push(
-    `<text x="${W - PAD}" y="${H - PAD / 2}" font-size="26" fill="${theme.muted}" text-anchor="end" font-family="${font}">FitCodex</text>`,
-  );
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join("")}</svg>`;
 }
 
@@ -412,7 +421,12 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "
         // Like Strong: the exercise, then a small trophy tag per kind of PR (no numbers).
         lines: groupPrs(d.prs)
           .slice(0, 6)
-          .map(([n, ps]) => `${n}   ${prTags(ps).map((t) => `🏆 ${t}`).join("  ")}`),
+          .map(
+            ([n, ps]) =>
+              `${n}   ${prTags(ps)
+                .map((t) => `🏆 ${t}`)
+                .join("  ")}`,
+          ),
         visual: (theme, _w, h, hide) => (
           <BodyMap values={values} theme={theme} height={h} showLegend={false} muscleNames={names} hideNumbers={hide} />
         ),
@@ -484,10 +498,24 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "
         visual: (theme, width, h, hide) => (
           <>
             {weight && (
-              <TimeSeriesSvg {...spec.chart} theme={theme} width={width} height={cal ? Math.round(h * 0.58) : h} hideNumbers={hide} fontScale={2} />
+              <TimeSeriesSvg
+                {...spec.chart}
+                theme={theme}
+                width={width}
+                height={cal ? Math.round(h * 0.58) : h}
+                hideNumbers={hide}
+                fontScale={2}
+              />
             )}
             {cal && (
-              <TimeSeriesSvg {...cal} theme={theme} width={width} height={weight ? Math.round(h * 0.4) : h} hideNumbers={hide} fontScale={2} />
+              <TimeSeriesSvg
+                {...cal}
+                theme={theme}
+                width={width}
+                height={weight ? Math.round(h * 0.4) : h}
+                hideNumbers={hide}
+                fontScale={2}
+              />
             )}
           </>
         ),

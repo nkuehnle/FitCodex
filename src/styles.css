@@ -2645,3 +2645,13 @@ a.start-row {
   text-decoration: none;
   flex: 1 1 200px;
 }
+
+/* Getting started checklist (Workouts, for new users) */
+.gs-steps { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 10px; }
+.gs-steps li { display: flex; gap: 10px; align-items: flex-start; }
+.gs-steps li.done strong { color: var(--muted); font-weight: 500; }
+.gs-mark { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 12px; line-height: 1; }
+.gs-steps li.done .gs-mark { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.gs-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.gs-body .segmented { justify-self: start; }
+.gs-tour { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }

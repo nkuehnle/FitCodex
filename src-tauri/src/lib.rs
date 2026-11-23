@@ -850,6 +850,13 @@ fn progress_report(state: State<AppState>, weeks: i64, include_body: bool) -> Cm
     })
 }
 
+/// Numbers for the PDF report over `from`–`to` (local dates, inclusive).
+#[tauri::command]
+fn report_numbers(state: State<AppState>, from: String, to: String) -> CmdResult<fitledger_core::report::ReportNumbers> {
+    let (f, t) = (date(&from)?, date(&to)?);
+    with(&state, |db| db.report_numbers(f, t))
+}
+
 /// Writes an export to `path` (desktop save dialog).
 #[tauri::command]
 fn export_file(state: State<AppState>, kind: String, path: String) -> CmdResult<()> {
@@ -917,6 +924,16 @@ fn share_png(app: tauri::AppHandle, name: String, data: String) -> CmdResult<()>
     let path = share_dir(&app)?.join(format!("{safe}.png"));
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     share_file(&app, &path, "image/png", "Share image")
+}
+
+/// Shares a PDF made in the UI (base64), or with `to_downloads` saves it to Downloads/FitCodex.
+#[tauri::command]
+fn share_pdf(app: tauri::AppHandle, name: String, data: String, to_downloads: bool) -> CmdResult<Option<String>> {
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect();
+    let path = share_dir(&app)?.join(format!("{safe}.pdf"));
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    share_or_save(&app, &path, "application/pdf", "Share report", to_downloads)
 }
 
 #[derive(Serialize)]
@@ -1558,7 +1575,7 @@ pub fn run() {
             list_templates, save_template, archive_template, template_from_workout, active_schedule, save_schedule, routine_review, apply_routine_fix,
             suggestion, projected_weekly_sets, muscle_targets, set_muscle_target, current_goal, set_goal, edit_goal, goal_history, progress_health, lift_status, dismiss_lift, week_progress, lift_goal, set_lift_goal, delete_lift_goal, phase_compare, list_phases, save_phase, delete_phase,
             propose_from_history, apply_history_proposal, programs, install_program, routine_text, routine_resources, preview_routine, import_routine,
-            progress_report, save_text, share_text, copy_text, paste_text,
+            progress_report, report_numbers, share_pdf, save_text, share_text, copy_text, paste_text,
             weigh_ins, add_weigh_in, update_weigh_in, update_measurement, delete_weigh_in, inbody_fields, inbody_scans, save_inbody_scan, delete_inbody_scan, norm_reference, exercise_comparison, comparable_exercises, strength_balance,
             preview_inbody_csv, import_inbody_csv, diet_days, save_diet_day, energy_balance,
             body_parts, measurements, add_measurement, delete_measurement,

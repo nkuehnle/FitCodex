@@ -679,6 +679,33 @@ export interface InBodyCsvPreview {
   errors: string[];
 }
 
+export interface LiftRow {
+  name: string;
+  per_hand: boolean;
+  sets: number;
+  first_kg: number | null;
+  second_kg: number | null;
+  best_kg: number;
+  best_reps: number;
+  prs: number;
+}
+
+/** Training, strength, nutrition and recovery numbers for a date range (PDF report). */
+export interface ReportNumbers {
+  weeks: number;
+  workouts: number;
+  sets: number;
+  avg_duration_min: number | null;
+  median_change: number | null;
+  lifts: LiftRow[];
+  intake_kcal: number | null;
+  intake_days: number;
+  protein_g: number | null;
+  sleep_h: number | null;
+  resting_hr: number | null;
+  hrv_ms: number | null;
+}
+
 export interface DietDay {
   date: string;
   calories: number | null;
@@ -1053,6 +1080,9 @@ export const api = {
   shareText: (name: string, mime: string, text: string) => invoke<void>("share_text", { name, mime, text }),
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   pasteText: () => invoke<string>("paste_text"),
+  reportNumbers: (from: string, to: string) => invoke<ReportNumbers>("report_numbers", { from, to }),
+  /** Shares a PDF (base64); with `toDownloads`, saves it to Downloads/FitCodex and returns where. */
+  sharePdf: (name: string, data: string, toDownloads: boolean) => invoke<string | null>("share_pdf", { name, data, toDownloads }),
   progressReport: (weeks: number, includeBody: boolean) => invoke<string>("progress_report", { weeks, includeBody }),
   dbInfo: () => invoke<BackupInfo>("db_info"),
   saveBase64: (path: string, data: string) => invoke<void>("save_base64", { path, data }),
