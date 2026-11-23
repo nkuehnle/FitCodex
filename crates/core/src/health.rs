@@ -297,7 +297,7 @@ impl Db {
             }
         }
         let mut lean: HashMap<String, Vec<(NaiveDate, f64)>> = HashMap::new();
-        for scan in self.inbody_scans()? {
+        for scan in self.analysis_scans()? {
             let Ok(d) = NaiveDate::parse_from_str(&scan.measured_at_local[..10], "%Y-%m-%d") else { continue };
             for (k, v) in scan.values {
                 if k.starts_with("lean_") && k.ends_with("_kg") {

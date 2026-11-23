@@ -65,8 +65,21 @@ pub struct WorkoutHr {
     pub max_hr: Option<i64>,
 }
 
+/// Body composition a smart scale's app shared (Health Connect body fat, lean, bone and water mass,
+/// BMR), grouped by weigh-in. `source` is the writing app (a package name until a scale profile
+/// claims it).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct BodyCompSample {
+    pub at: String,
+    pub source: String,
+    /// `INBODY_FIELDS` column -> value (kg, %, kcal).
+    pub values: std::collections::BTreeMap<String, f64>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WearableImport {
+    #[serde(default)]
+    pub body_comp: Vec<BodyCompSample>,
     #[serde(default)]
     pub weights: Vec<WeightSample>,
     #[serde(default)]
@@ -86,6 +99,12 @@ pub struct WearableSummary {
     /// Workouts that got heart rate.
     pub workouts_hr: usize,
     pub days: usize,
+    /// Body-composition scans added or filled in.
+    #[serde(default)]
+    pub scans: usize,
+    /// Weigh-ins held for you to check (they may be someone else's; see `pending`).
+    #[serde(default)]
+    pub held: usize,
 }
 
 /// A finished workout without heart rate, for reading heart rate samples over its time.
@@ -105,15 +124,45 @@ impl Db {
     /// Adds what a watch or health app recorded. Safe to repeat with overlapping data.
     pub fn import_wearable(&mut self, data: &WearableImport) -> Result<WearableSummary> {
         let mut out = WearableSummary::default();
-        let tx = self.conn_mut().transaction()?;
+        // Weigh-ins from a scale's app are filed under its profile, like its body composition.
+        let mut weight_sources = std::collections::HashMap::new();
         for w in &data.weights {
+            if !weight_sources.contains_key(&w.source) {
+                weight_sources.insert(w.source.clone(), self.profile_for_package(&w.source)?.unwrap_or_else(|| w.source.clone()));
+            }
+        }
+        // A weigh-in far from your recent weight may be someone else's (a shared scale or app):
+        // it's held for you to check instead (see `pending`).
+        let mut held = std::collections::HashSet::new();
+        for (i, w) in data.weights.iter().enumerate() {
             if !(w.weight_kg > 0.0) {
+                continue;
+            }
+            let scan = crate::body::InBodyScan {
+                id: None,
+                measured_at_local: parse_time(&w.at)?.format(TIME_FMT).to_string(),
+                values: [("weight_kg".to_string(), w.weight_kg)].into(),
+                device: None,
+                notes: None,
+                source: Some(self.source_for_package(&w.source)?),
+            };
+            if self.absorb_if_held(&scan)? {
+                held.insert(i);
+            } else if let Some(why) = self.weigh_in_doubt(&scan.measured_at_local, w.weight_kg)? {
+                self.hold_weigh_in(&scan, &format!("{why}: is this you?"))?;
+                held.insert(i);
+                out.held += 1;
+            }
+        }
+        let tx = self.conn_mut().transaction()?;
+        for (i, w) in data.weights.iter().enumerate() {
+            if !(w.weight_kg > 0.0) || held.contains(&i) {
                 continue;
             }
             let at = parse_time(&w.at)?.format(TIME_FMT).to_string();
             out.weights += tx.execute(
                 "INSERT OR IGNORE INTO bodyweight (measured_at_local, weight_kg, source) VALUES (?1, ?2, ?3)",
-                params![at, w.weight_kg, w.source],
+                params![at, w.weight_kg, weight_sources[&w.source]],
             )?;
         }
         for a in &data.activities {
@@ -189,6 +238,34 @@ impl Db {
         tx.commit()?;
         if out.activities > 0 {
             self.rebuild_prs()?;
+        }
+        for b in &data.body_comp {
+            let at = parse_time(&b.at)?.format(TIME_FMT).to_string();
+            let values: std::collections::BTreeMap<String, f64> =
+                b.values.iter().filter(|(k, v)| v.is_finite() && **v > 0.0 && crate::body::INBODY_FIELDS.iter().any(|f| f.0 == k.as_str())).map(|(k, v)| (k.clone(), *v)).collect();
+            // A weight alone is a weigh-in (above), not a scan.
+            if values.keys().all(|k| k == "weight_kg") {
+                continue;
+            }
+            let scan = crate::body::InBodyScan {
+                id: None,
+                measured_at_local: at,
+                values,
+                device: None,
+                notes: None,
+                source: Some(self.source_for_package(&b.source)?),
+            };
+            if self.absorb_if_held(&scan)? {
+                continue;
+            }
+            if let Some(why) = scan.values.get("weight_kg").map(|w| self.weigh_in_doubt(&scan.measured_at_local, *w)).transpose()?.flatten() {
+                self.hold_weigh_in(&scan, &format!("{why}: is this you?"))?;
+                out.held += 1;
+                continue;
+            }
+            if self.merge_body_comp_scan(&scan)?.0 != crate::body::MergeOutcome::Unchanged {
+                out.scans += 1;
+            }
         }
         Ok(out)
     }
@@ -386,9 +463,10 @@ mod tests {
             ],
             days: vec![DayHealth { date: "2026-11-02".into(), source: "health_connect".into(), sleep_s: Some(27000), resting_hr: Some(52), hrv_ms: None, steps: Some(9000) }],
             workout_hr: vec![],
+            body_comp: vec![],
         };
         let s = db.import_wearable(&data).unwrap();
-        assert_eq!(s, WearableSummary { weights: 1, activities: 1, workouts_hr: 1, days: 1 });
+        assert_eq!(s, WearableSummary { weights: 1, activities: 1, workouts_hr: 1, days: 1, scans: 0, held: 0 });
         let d = db.workout_detail(push).unwrap().unwrap();
         assert_eq!((d.avg_hr, d.max_hr), (Some(110), Some(130)));
         let runs = db.cardio_sessions().unwrap();

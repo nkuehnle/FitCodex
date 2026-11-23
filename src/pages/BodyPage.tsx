@@ -15,6 +15,7 @@ import {
   type Goal,
   type MeasurementRow,
   type Phase,
+  type ScaleProfile,
   type WeighInRow,
 } from "../api";
 import { usePrefs } from "../App";
@@ -28,16 +29,20 @@ import { ShareButton } from "../share/ShareDialog";
 import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { PhaseSplitCard } from "../components/PhaseSplitCard";
-import { fileToBase64 } from "../platform";
+import { IS_ANDROID, fileToBase64 } from "../platform";
+import { BluetoothWeighIn, ImpedanceCard, PendingWeighIns, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
 import { isPumped, pumpRatio } from "../pump";
 
 const KG_PER_LB = 0.45359237;
 type Tab = "weight" | "inbody" | "diet" | "parts";
 
 export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
+  // Bumped when a held weigh-in is saved, to reload the tab.
+  const [rev, setRev] = useState(0);
   return (
     <div className="page">
       <h1 className="page-title">Measure</h1>
+      <PendingWeighIns onChanged={() => setRev((r) => r + 1)} />
       <GoalPanel />
       <div className="segmented tabs-scroll">
         {(["weight", "parts", "inbody", "diet"] as Tab[]).map((t) => (
@@ -46,13 +51,13 @@ export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
           </a>
         ))}
       </div>
-      {tab === "weight" && <BodyweightTab />}
+      {tab === "weight" && <BodyweightTab key={rev} />}
       {tab === "parts" && <BodyPartsTab part={part} />}
       {/* Body comp: body fat and muscle/fat mass (measured and estimated), then InBody scans. */}
       {tab === "inbody" && (
         <>
-          <BodyFatTab />
-          <InBodyTab />
+          <BodyFatTab key={`f${rev}`} />
+          <InBodyTab key={`s${rev}`} />
         </>
       )}
       {tab === "diet" && <DietTab />}
@@ -818,19 +823,50 @@ function InBodyTab() {
   const [csv, setCsv] = useState<{ text: string; preview: InBodyCsvPreview } | null>(null);
   const [metric, setMetric] = useState("smm_kg");
   const [msg, setMsg] = useState<string | null>(null);
-  const load = () => api.inbodyScans().then(setScans);
+  const [profiles, setProfiles] = useState<ScaleProfile[]>([]);
+  /** The device the import buttons are for. */
+  const [profileId, setProfileId] = useState(() => localStorage.getItem("bodyCompDevice") ?? "inbody");
+  const [analysisSource, setAnalysisSource] = useState<string | null>(null);
+  const [showProfiles, setShowProfiles] = useState(false);
+  const [bluetooth, setBluetooth] = useState(false);
+  const load = () => {
+    api.inbodyScans().then(setScans);
+    api.bodyCompAnalysisSource().then(setAnalysisSource);
+  };
+  const loadProfiles = () => api.scaleProfiles().then(setProfiles);
   useEffect(() => {
     load();
+    loadProfiles();
     api.inbodyFields().then(setFields);
     api.listPhases().then(setPhases);
   }, []);
+  const profile = profiles.find((p) => p.id === profileId) ?? profiles[0];
+  const chooseProfile = (id: string) => {
+    setProfileId(id);
+    try {
+      localStorage.setItem("bodyCompDevice", id);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const sources = [...new Set(scans.map((s) => s.source ?? "inbody"))];
 
   const conv = (f: InBodyField | undefined, v: number) => (f?.unit === "kg" ? toUnit(v, unit) : v);
   const fieldOf = (c: string) => fields.find((f) => f.column === c);
   const unitLabel = (f?: InBodyField) =>
     !f ? "" : f.unit === "kg" ? unit : f.unit === "pct" ? "%" : f.unit === "l" ? "L" : f.unit === "kcal" ? "kcal" : "";
-  const series = (c: string): Point[] =>
-    scans.filter((s) => s.values[c] != null).map((s) => ({ t: parseLocal(s.measured_at_local), v: conv(fieldOf(c), s.values[c]) }));
+  const unitLabel2 = (f?: InBodyField) => (f?.unit === "ohm" ? "Ω" : f?.unit === "bpm" ? "bpm" : f?.unit === "years" ? "years" : unitLabel(f));
+  // One line per device: different BIA devices don't agree, so they're never joined into one line.
+  const series = (c: string): Series[] =>
+    sources
+      .map((src) => ({
+        id: `${c}-${src}`,
+        label: sources.length > 1 ? `${fieldOf(c)?.label ?? c} (${sourceName(profiles, src)})` : (fieldOf(c)?.label ?? c),
+        points: scans
+          .filter((s) => (s.source ?? "inbody") === src && s.values[c] != null)
+          .map((s) => ({ t: parseLocal(s.measured_at_local), v: conv(fieldOf(c), s.values[c]) })) as Point[],
+      }))
+      .filter((x) => x.points.length > 0);
   const available = fields.filter(
     (f) => scans.some((s) => s.values[f.column] != null) && !f.column.startsWith("lean_") && !f.column.startsWith("fat_"),
   );
@@ -838,7 +874,45 @@ function InBodyTab() {
   async function onFile(file?: File) {
     if (!file) return;
     const text = await file.text();
-    setCsv({ text, preview: await api.previewInbodyCsv(text) });
+    const preview = await api.previewInbodyCsv(text);
+    // A file with columns seen before keeps its device; a new one is for the chosen device.
+    if (!preview.remembered && profileId !== "inbody") preview.mapping.source = profileId;
+    setCsv({ text, preview });
+  }
+
+  /** Vendor-app screenshots: read with the profile's labels, then checked in the scan form. */
+  async function onScreenshots(files: FileList | null) {
+    if (!files?.length || !profile) return;
+    setMsg(null);
+    const toCheck: { scan: InBodyScan; doubtful: string[] }[] = [];
+    const failed: string[] = [];
+    for (const [i, file] of [...files].entries()) {
+      setReading(`Reading screenshot ${i + 1} of ${files.length}…`);
+      try {
+        const r = await api.readBodyCompScreenshot(await fileToBase64(file), profile.id, unit);
+        if (!Object.keys(r.values).length) {
+          failed.push(`${file.name}: none of the ${profile.name} labels found (read: ${r.text.slice(0, 6).join(" / ")})`);
+          continue;
+        }
+        toCheck.push({
+          scan: { id: null, measured_at_local: r.measured_at ?? nowLocal(), values: r.values, device: profile.name, notes: null, source: profile.id },
+          doubtful: r.measured_at ? r.doubtful : [...r.doubtful, "date"],
+        });
+      } catch (e) {
+        failed.push(`${file.name}: ${e}`);
+      }
+    }
+    setReading(null);
+    setMsg(
+      [toCheck.length && `Check ${toCheck.length} reading${toCheck.length > 1 ? "s" : ""} before saving.`, failed.length && `Couldn't read: ${failed.join("; ")}`]
+        .filter(Boolean)
+        .join(" "),
+    );
+    if (toCheck.length) {
+      setEditing(toCheck[0].scan);
+      setFlagged(toCheck[0].doubtful);
+      setReview(toCheck.slice(1));
+    }
   }
 
   /** Result-sheet images: clean reads are saved, anything doubtful opens for a check. */
@@ -904,36 +978,77 @@ function InBodyTab() {
   return (
     <>
       <section className="card">
-        <div className="row" style={{ marginTop: 0 }}>
+        <div className="form-row" style={{ marginTop: 0 }}>
+          <label>
+            Device
+            <select className="select" value={profile?.id ?? profileId} onChange={(e) => chooseProfile(e.target.value)}>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="row">
           <button
             className="button primary"
             onClick={() => {
               setFlagged([]);
-              setEditing({ id: null, measured_at_local: nowLocal(), values: {}, device: null, notes: null });
+              setEditing({
+                id: null,
+                measured_at_local: nowLocal(),
+                values: {},
+                device: profile && profile.id !== "inbody" ? profile.name : null,
+                notes: null,
+                source: profile?.id ?? null,
+              });
             }}
           >
             + Add scan
           </button>
-          <label className="button">
-            Read sheet images
-            <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onImages(e.target.files)} />
-          </label>
+          {profile?.id === "inbody" ? (
+            <label className="button">
+              Read sheet images
+              <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onImages(e.target.files)} />
+            </label>
+          ) : (
+            profile &&
+            Object.keys(profile.labels).length > 0 && (
+              <label className="button">
+                Read app screenshots
+                <input type="file" accept="image/*" multiple hidden disabled={!!reading} onChange={(e) => onScreenshots(e.target.files)} />
+              </label>
+            )
+          )}
+          {IS_ANDROID && profile?.bluetooth && (
+            <button className="button" onClick={() => setBluetooth(true)}>
+              Weigh in over Bluetooth
+            </button>
+          )}
           <label className="button">
             Import CSV
             <input type="file" accept=".csv,text/csv" hidden onChange={(e) => onFile(e.target.files?.[0])} />
           </label>
+          <button className="button" onClick={() => setShowProfiles(true)}>
+            Scale profiles
+          </button>
         </div>
-        <p className="muted small">Sheet images: InBody 580 result sheets saved as PNG or JPEG, read on this device.</p>
+        <p className="muted small">
+          {profile?.id === "inbody"
+            ? "Sheet images: InBody 580 result sheets saved as PNG or JPEG, read on this device."
+            : `Screenshots of the ${profile?.name ?? "scale"} app's results page are read on this device. Its body composition also arrives from Health Connect when the app shares it there${profile?.bluetooth ? (IS_ANDROID ? ", or weigh in over Bluetooth" : "; Bluetooth weigh-ins are in the Android app") : ""}.`}
+        </p>
         {reading && <p className="small">{reading}</p>}
         {msg && <p className="success small">{msg}</p>}
       </section>
       {scans.length === 0 ? (
-        <p className="empty">No scans yet. Add one from your InBody result sheet, or import a CSV from LookinBody.</p>
+        <p className="empty">No scans yet. Add one from an InBody result sheet or a home scale, or import a CSV.</p>
       ) : (
         <>
           <section className="card">
             <div className="title-row">
-              <h2 className="section-title">InBody: any metric</h2>
+              <h2 className="section-title">Body composition: any metric</h2>
               <ShareButton kind="inbody" />
             </div>
             <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
@@ -944,14 +1059,37 @@ function InBodyTab() {
               ))}
             </select>
             <TimeSeriesChart
-              title={`InBody: ${fieldOf(metric)?.label ?? metric}`}
-              series={[{ id: metric, label: fieldOf(metric)?.label ?? metric, points: series(metric) }]}
-              unit={unitLabel(fieldOf(metric))}
+              title={fieldOf(metric)?.label ?? metric}
+              series={series(metric)}
+              unit={unitLabel2(fieldOf(metric))}
               bands={bandsOf(phases)}
               height={220}
             />
           </section>
-          <Segmental scans={scans} unit={unit} />
+          {sources.length > 1 && (
+            <section className="card">
+              <label>
+                Analyses use
+                <select
+                  className="select"
+                  value={analysisSource ?? ""}
+                  onChange={(e) => api.setBodyCompAnalysisSource(e.target.value || null).then(load)}
+                >
+                  {sources.map((src) => (
+                    <option key={src} value={src}>
+                      {sourceName(profiles, src)} scans
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="muted small">
+                Body fat trends, muscle growth, left/right balance and reports use one device's scans: different BIA devices read
+                differently, so mixing them would show changes that aren't real.
+              </p>
+            </section>
+          )}
+          <Segmental scans={scans.filter((s) => (s.source ?? "inbody") === (analysisSource ?? "inbody"))} unit={unit} />
+          <ImpedanceCard scans={scans} profiles={profiles} unit={unit} />
           <section className="card">
             <div className="section-label">Scans</div>
             {[...scans].reverse().map((s) => (
@@ -965,6 +1103,7 @@ function InBodyTab() {
               >
                 <span>
                   {formatDate(s.measured_at_local)}
+                  {sources.length > 1 && <span className="chip">{sourceName(profiles, s.source)}</span>}
                   <span className="muted small">
                     {" "}
                     · {s.values.weight_kg != null && `${toUnit(s.values.weight_kg, unit).toFixed(1)} ${unit}`}
@@ -992,8 +1131,34 @@ function InBodyTab() {
           }}
         />
       )}
+      {showProfiles && (
+        <ScaleProfilesModal
+          profiles={profiles}
+          fields={fields}
+          unit={unit}
+          onChanged={() => {
+            loadProfiles();
+            load();
+          }}
+          onClose={() => setShowProfiles(false)}
+        />
+      )}
+      {bluetooth && profile && (
+        <BluetoothWeighIn
+          profile={profile}
+          fields={fields}
+          unit={unit}
+          onClose={() => setBluetooth(false)}
+          onSaved={(m) => {
+            setBluetooth(false);
+            setMsg(m);
+            load();
+          }}
+        />
+      )}
       {csv && (
         <CsvMapper
+          profiles={profiles}
           text={csv.text}
           initial={csv.preview}
           fields={fields}
@@ -1158,12 +1323,33 @@ function ScanForm({
   const [notes, setNotes] = useState(scan.notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const label = (f: InBodyField) =>
-    `${f.label}${f.unit === "kg" ? ` (${unit})` : f.unit === "pct" ? " (%)" : f.unit === "l" ? " (L)" : f.unit === "kcal" ? " (kcal)" : ""}`;
+    `${f.label}${
+      f.unit === "kg"
+        ? ` (${unit})`
+        : f.unit === "pct"
+          ? " (%)"
+          : f.unit === "l"
+            ? " (L)"
+            : f.unit === "kcal"
+              ? " (kcal)"
+              : f.unit === "ohm"
+                ? " (Ω)"
+                : f.unit === "bpm"
+                  ? " (bpm)"
+                  : f.unit === "years"
+                    ? " (years)"
+                    : ""
+    }`;
+  const HOME = ["muscle_mass_kg", "bone_mass_kg", "body_water_pct", "protein_pct", "skeletal_muscle_pct", "subcutaneous_fat_pct", "metabolic_age", "heart_rate_bpm"];
+  const isImp = (f: InBodyField) => f.unit === "ohm";
   const groups: [string, (f: InBodyField) => boolean][] = [
-    ["Body composition", (f) => !f.column.startsWith("lean_") && !f.column.startsWith("fat_")],
+    ["Body composition", (f) => !f.column.startsWith("lean_") && !f.column.startsWith("fat_") && !HOME.includes(f.column) && !isImp(f)],
+    ["Home scale", (f) => HOME.includes(f.column)],
     ["Segmental lean", (f) => f.column.startsWith("lean_")],
     ["Segmental fat", (f) => f.column.startsWith("fat_")],
+    ["Raw impedance", isImp],
   ];
+  const homeScale = (scan.source ?? "inbody") !== "inbody";
 
   async function save() {
     const values: Record<string, number> = {};
@@ -1181,6 +1367,7 @@ function ScanForm({
         values,
         device: device || null,
         notes: notes || null,
+        source: scan.source ?? null,
       });
       onSaved();
     } catch (e) {
@@ -1189,7 +1376,7 @@ function ScanForm({
   }
 
   return (
-    <Modal title={scan.id ? "Edit scan" : "New InBody scan"} onClose={onClose} wide>
+    <Modal title={scan.id ? "Edit scan" : homeScale ? `New scan: ${scan.device ?? scan.source}` : "New InBody scan"} onClose={onClose} wide>
       <div className="form">
         <div className="form-row">
           <label>
@@ -1198,19 +1385,26 @@ function ScanForm({
           </label>
           <label>
             Device
-            <input value={device} placeholder="InBody 570" onChange={(e) => setDevice(e.target.value)} />
+            <input value={device} placeholder={homeScale ? "Model" : "InBody 570"} onChange={(e) => setDevice(e.target.value)} />
           </label>
         </div>
         {flagged.length > 0 ? (
           <p className="warn small">
-            Read from the sheet image. Check the highlighted {flagged.includes("date") ? "date and " : ""}fields against the sheet before
+            Read from {homeScale ? "a screenshot" : "the sheet image"}. Check the highlighted {flagged.includes("date") ? "date and " : ""}fields against the sheet before
             saving.
           </p>
         ) : (
           <p className="muted small">Every field is optional; fill in what's on your result sheet.</p>
         )}
         {groups.map(([title, pred]) => (
-          <details key={title} open={title === "Body composition" || fields.some((f) => pred(f) && flagged.includes(f.column))}>
+          <details
+            key={title}
+            open={
+              title === "Body composition" ||
+              (title === "Home scale" && homeScale) ||
+              fields.some((f) => pred(f) && (flagged.includes(f.column) || vals[f.column]))
+            }
+          >
             <summary className="section-label">{title}</summary>
             <div className="field-grid">
               {fields.filter(pred).map((f) => (
@@ -1257,12 +1451,14 @@ function ScanForm({
 }
 
 function CsvMapper({
+  profiles,
   text,
   initial,
   fields,
   onClose,
   onImported,
 }: {
+  profiles: ScaleProfile[];
   text: string;
   initial: InBodyCsvPreview;
   fields: InBodyField[];
@@ -1286,7 +1482,7 @@ function CsvMapper({
     setMapping({ ...mapping, columns });
   };
   return (
-    <Modal title="Map InBody CSV columns" onClose={onClose} wide>
+    <Modal title="Map body-composition CSV columns" onClose={onClose} wide>
       {initial.remembered && <p className="success small">Using the mapping you saved for files with these columns.</p>}
       <div className="form-row">
         <label>
@@ -1294,6 +1490,20 @@ function CsvMapper({
           <select className="select" value={mapping.date_column} onChange={(e) => setMapping({ ...mapping, date_column: e.target.value })}>
             {preview.headers.map((h) => (
               <option key={h}>{h}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Device
+          <select
+            className="select"
+            value={mapping.source ?? "inbody"}
+            onChange={(e) => setMapping({ ...mapping, source: e.target.value === "inbody" ? null : e.target.value })}
+          >
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
             ))}
           </select>
         </label>

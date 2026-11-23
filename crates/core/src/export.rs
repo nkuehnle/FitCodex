@@ -148,20 +148,24 @@ impl Db {
                 "l" => format!("{label} (L)"),
                 "pct" => format!("{label} (%)"),
                 "kcal" => format!("{label} (kcal)"),
+                "ohm" => format!("{label} (ohm)"),
+                "bpm" => format!("{label} (bpm)"),
+                "years" => format!("{label} (years)"),
                 _ => label.to_string(),
             })
             .collect();
-        let mut out = format!("Date,{},Device,Notes\n", header.iter().map(|h| csv_field(h)).collect::<Vec<_>>().join(","));
+        let mut out = format!("Date,{},Device,Source,Notes\n", header.iter().map(|h| csv_field(h)).collect::<Vec<_>>().join(","));
         for s in self.inbody_scans()? {
             let vals: Vec<String> = INBODY_FIELDS
                 .iter()
                 .map(|(c, _, kind)| num(s.values.get(*c).map(|&v| if *kind == "kg" { unit.from_kg(v) } else { v })))
                 .collect();
             out.push_str(&format!(
-                "{},{},{},{}\n",
+                "{},{},{},{},{}\n",
                 s.measured_at_local,
                 vals.join(","),
                 csv_field(s.device.as_deref().unwrap_or("")),
+                csv_field(s.source()),
                 csv_field(s.notes.as_deref().unwrap_or(""))
             ));
         }

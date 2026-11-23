@@ -115,6 +115,16 @@ from **Settings → Import, export & backup → Restore…**.
 - **Body composition:** InBody scans by hand, from a CSV, or **read straight from a photo of an
   InBody 580 result sheet** with on-device OCR. Body fat, lean mass and fat mass are charted
   alongside US Navy and relative-fat-mass tape estimates.
+- **Home body-composition scales** (Arboleaf and other QN-Scale models so far): weigh in over
+  **Bluetooth** on Android, read the scale app's screenshots, or pick up its body fat, lean, bone
+  and water mass from Health Connect. Each device's scans are charted as their own line (BIA devices
+  don't agree with each other), analyses use one device you choose, and raw impedance is kept. A
+  scale weigh-in is also your weigh-in for the day. New scales usually need only a
+  [scale profile](data/scales/README.md), not code.
+- **Shared scales:** each person picks their own user number on the scale in their own copy of
+  FitLedger, and FitLedger only listens to the scale while its weigh-in window is open. Anything
+  that might be someone else's waits for **That's me / Not me**: weigh-ins the scale kept while no
+  phone was connected, and Health Connect weigh-ins far from your recent weight.
 - **How you compare:** percentiles against people of your sex and age for body fat, fat mass and
   lean mass indexes (US body-scan reference data, the same kind InBody shows), weight, BMI, waist
   and upper arm. Each shows a strip with where you started and where you are now.
@@ -172,6 +182,11 @@ permission from the author.
 InBody sheet reading uses the [Ocrs](https://github.com/robertknight/ocrs) engine. Its models
 are trained on Google Research's HierText dataset and licensed CC BY-SA 4.0 (see
 [crates/ocr/models/README.md](crates/ocr/models/README.md)).
+
+The Bluetooth scale protocol (`crates/core/src/scales/qn.rs`) is an independent implementation
+of byte layouts documented by [ble-scale-sync](https://github.com/KristianP26/ble-scale-sync) and
+openScale; no code was copied. The open body-composition estimate from impedance follows Sun et al.
+(2003).
 
 Comparison data: body composition from Kelly, Wilson & Heymsfield (2009), "Dual Energy X-Ray
 Absorptiometry Body Composition Reference Values from NHANES", PLoS ONE 4(9): e7038 (CC BY);

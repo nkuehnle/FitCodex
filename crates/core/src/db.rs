@@ -338,6 +338,47 @@ CREATE TABLE exercise_muscle_new (
 INSERT INTO exercise_muscle_new SELECT exercise_id, muscle_id, role FROM exercise_muscle;
 DROP TABLE exercise_muscle;
 ALTER TABLE exercise_muscle_new RENAME TO exercise_muscle;
+"#, r#"
+-- Migration 12: body composition from more devices (home BIA scales such as Arboleaf, Health
+-- Connect). `source` is the device family a scan came from ('inbody', 'arboleaf', ...): numbers from
+-- different BIA devices aren't comparable, so charts and analyses keep them apart. Every scan so far
+-- came from InBody (by hand, CSV or sheet image).
+ALTER TABLE inbody_scan ADD COLUMN source TEXT;
+UPDATE inbody_scan SET source = 'inbody';
+-- What home scales report besides the InBody fields.
+ALTER TABLE inbody_scan ADD COLUMN muscle_mass_kg REAL;
+ALTER TABLE inbody_scan ADD COLUMN bone_mass_kg REAL;
+ALTER TABLE inbody_scan ADD COLUMN body_water_pct REAL;
+ALTER TABLE inbody_scan ADD COLUMN protein_pct REAL;
+ALTER TABLE inbody_scan ADD COLUMN skeletal_muscle_pct REAL;
+ALTER TABLE inbody_scan ADD COLUMN subcutaneous_fat_pct REAL;
+ALTER TABLE inbody_scan ADD COLUMN metabolic_age REAL;
+ALTER TABLE inbody_scan ADD COLUMN heart_rate_bpm REAL;
+-- Raw bioimpedance, ohm: one whole-body value (4-electrode scales) and, for 8-electrode
+-- dual-frequency scales, each segment at 20 and 100 kHz.
+ALTER TABLE inbody_scan ADD COLUMN impedance_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_right_arm_20k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_left_arm_20k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_trunk_20k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_right_leg_20k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_left_leg_20k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_right_arm_100k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_left_arm_100k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_trunk_100k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_right_leg_100k_ohm REAL;
+ALTER TABLE inbody_scan ADD COLUMN imp_left_leg_100k_ohm REAL;
+"#, r#"
+-- Migration 13: weigh-ins held for checking (a shared scale or health app may have weighed someone
+-- else). `scan` is the InBodyScan as JSON; rejected ones are kept so a re-sync doesn't offer them again.
+CREATE TABLE pending_weigh_in (
+    id                INTEGER PRIMARY KEY,
+    measured_at_local TEXT NOT NULL,
+    source            TEXT NOT NULL,
+    scan              TEXT NOT NULL,
+    reason            TEXT NOT NULL,
+    rejected          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (source, measured_at_local)
+);
 "#];
 
 pub(crate) const MIGRATION_COUNT: usize = MIGRATIONS.len();

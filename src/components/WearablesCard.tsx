@@ -9,6 +9,8 @@ export function summaryText(s: WearableSummary): string {
     s.activities && `${s.activities} cardio session${s.activities === 1 ? "" : "s"}`,
     s.workouts_hr && `heart rate on ${s.workouts_hr} workout${s.workouts_hr === 1 ? "" : "s"}`,
     s.weights && `${s.weights} weigh-in${s.weights === 1 ? "" : "s"}`,
+    s.scans && `${s.scans} body-composition scan${s.scans === 1 ? "" : "s"}`,
+    s.held && `${s.held} weigh-in${s.held === 1 ? "" : "s"} to check under Measure`,
     s.days && `${s.days} day${s.days === 1 ? "" : "s"} of sleep/recovery`,
   ].filter(Boolean);
   return parts.length ? `Added ${parts.join(", ")}.` : "Nothing new.";
@@ -88,7 +90,8 @@ function HealthConnectSection() {
       {msg && <p className="small">{msg}</p>}
       <p className="small muted">
         Your watch's app has to share with Health Connect too. In Garmin Connect, look under Settings › Connected Apps › Health Connect;
-        Fitbit and Oura have the same switch in their settings. FitLedger syncs when you open it, at most once an hour.
+        Fitbit and Oura have the same switch in their settings, and so do smart-scale apps such as Arboleaf (body fat, lean, bone and
+        water mass then arrive as body-composition scans). FitLedger syncs when you open it, at most once an hour.
       </p>
     </>
   );

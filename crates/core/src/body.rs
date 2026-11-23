@@ -1,4 +1,5 @@
-//! Bodyweight log, InBody body-composition scans (manual and CSV), diet log and energy balance.
+//! Bodyweight log, body-composition scans (InBody and home BIA scales; manual, CSV, sheet/screenshot
+//! OCR, Health Connect and Bluetooth), diet log and energy balance.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -21,7 +22,8 @@ pub struct WeighInRow {
     pub id: i64,
     pub at: String,
     pub weight_kg: f64,
-    /// "manual", "strong" or "inbody".
+    /// "manual", "strong", "inbody", or the device or app a scale weigh-in came from
+    /// ("arboleaf", "garmin", ...).
     pub source: String,
 }
 
@@ -69,11 +71,13 @@ impl Db {
     }
 
     /// All weigh-ins oldest first; InBody scan weights included (source "inbody") when asked.
+    /// Home-scale scans add their own weigh-in to `bodyweight` when saved, so they're always here.
     pub fn weigh_ins(&self, include_inbody: bool) -> Result<Vec<WeighInRow>> {
         let mut stmt = self.conn().prepare(
             "SELECT id, measured_at_local, weight_kg, source FROM bodyweight
              UNION ALL
-             SELECT -id, measured_at_local, weight_kg, 'inbody' FROM inbody_scan WHERE ?1 AND weight_kg IS NOT NULL
+             SELECT -id, measured_at_local, weight_kg, 'inbody' FROM inbody_scan
+             WHERE ?1 AND weight_kg IS NOT NULL AND coalesce(source, 'inbody') = 'inbody'
              ORDER BY 2",
         )?;
         let rows = stmt.query_map([include_inbody], |r| Ok(WeighInRow { id: r.get(0)?, at: r.get(1)?, weight_kg: r.get(2)?, source: r.get(3)? }))?;
@@ -193,7 +197,52 @@ pub const INBODY_FIELDS: &[(&str, &str, &str)] = &[
     ("fat_trunk_pct", "Fat mass: trunk (% of ideal)", "pct"),
     ("fat_right_leg_pct", "Fat mass: right leg (% of ideal)", "pct"),
     ("fat_left_leg_pct", "Fat mass: left leg (% of ideal)", "pct"),
+    // Home BIA scales (Arboleaf and similar). "Muscle mass" there is soft lean mass (fat-free mass
+    // less bone), not InBody's skeletal muscle mass.
+    ("muscle_mass_kg", "Muscle mass (scale)", "kg"),
+    ("bone_mass_kg", "Bone mass", "kg"),
+    ("body_water_pct", "Body water", "pct"),
+    ("protein_pct", "Protein", "pct"),
+    ("skeletal_muscle_pct", "Skeletal muscle", "pct"),
+    ("subcutaneous_fat_pct", "Subcutaneous fat", "pct"),
+    ("metabolic_age", "Metabolic age", "years"),
+    ("heart_rate_bpm", "Heart rate", "bpm"),
+    // Raw bioimpedance.
+    ("impedance_ohm", "Impedance (whole body)", "ohm"),
+    ("imp_right_arm_20k_ohm", "Impedance: right arm, 20 kHz", "ohm"),
+    ("imp_left_arm_20k_ohm", "Impedance: left arm, 20 kHz", "ohm"),
+    ("imp_trunk_20k_ohm", "Impedance: trunk, 20 kHz", "ohm"),
+    ("imp_right_leg_20k_ohm", "Impedance: right leg, 20 kHz", "ohm"),
+    ("imp_left_leg_20k_ohm", "Impedance: left leg, 20 kHz", "ohm"),
+    ("imp_right_arm_100k_ohm", "Impedance: right arm, 100 kHz", "ohm"),
+    ("imp_left_arm_100k_ohm", "Impedance: left arm, 100 kHz", "ohm"),
+    ("imp_trunk_100k_ohm", "Impedance: trunk, 100 kHz", "ohm"),
+    ("imp_right_leg_100k_ohm", "Impedance: right leg, 100 kHz", "ohm"),
+    ("imp_left_leg_100k_ohm", "Impedance: left leg, 100 kHz", "ohm"),
 ];
+
+/// Source of scans with no source given (the manual form, InBody CSVs and sheet images).
+pub const DEFAULT_SCAN_SOURCE: &str = "inbody";
+
+/// Scans from the same source this close together are the same weigh-in reaching the app twice
+/// (e.g. over Bluetooth and again from Health Connect): the second fills in the first's gaps.
+pub const SAME_WEIGH_IN_MINUTES: i64 = 3;
+
+/// What `merge_body_comp_scan` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeOutcome {
+    Inserted,
+    /// Filled in fields an existing scan of the same weigh-in didn't have.
+    Merged,
+    /// Nothing new.
+    Unchanged,
+}
+
+/// Valid source ids: lowercase letters, digits, `_`, `-` and `.` (Health Connect package names).
+pub fn valid_source(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 80 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-.".contains(c))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InBodyScan {
@@ -201,8 +250,19 @@ pub struct InBodyScan {
     pub measured_at_local: String,
     /// Field column -> value (kg for masses).
     pub values: BTreeMap<String, f64>,
+    /// Model, as shown to the user ("InBody 580", "Arboleaf CS10P").
     pub device: Option<String>,
     pub notes: Option<String>,
+    /// Device family (a scale profile id such as "inbody" or "arboleaf"); `DEFAULT_SCAN_SOURCE`
+    /// when missing.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl InBodyScan {
+    pub fn source(&self) -> &str {
+        self.source.as_deref().unwrap_or(DEFAULT_SCAN_SOURCE)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,6 +272,9 @@ pub struct CsvMapping {
     pub columns: BTreeMap<String, String>,
     /// Unit of mass columns in the file.
     pub mass_unit: WeightUnit,
+    /// Device family the file's scans come from (a scale profile id); InBody when missing.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -251,13 +314,32 @@ pub fn guess_inbody_column(header: &str) -> Option<&'static str> {
             return seg(side);
         }
     }
+    if h.contains("impedance") || h.contains("resistance") {
+        return Some("impedance_ohm");
+    }
+    if pct {
+        let pct_table: &[(&[&str], &str)] = &[
+            (&["subcutaneous"], "subcutaneous_fat_pct"),
+            (&["skeletalmuscle"], "skeletal_muscle_pct"),
+            (&["water"], "body_water_pct"),
+            (&["protein"], "protein_pct"),
+        ];
+        if let Some((_, c)) = pct_table.iter().find(|(keys, _)| keys.iter().any(|k| h.contains(k))) {
+            return Some(c);
+        }
+    }
     let table: &[(&[&str], &str)] = &[
+        (&["subcutaneous"], "subcutaneous_fat_pct"),
+        (&["metabolicage", "bodyage"], "metabolic_age"),
+        (&["heartrate", "pulse"], "heart_rate_bpm"),
+        (&["bonemass", "bone"], "bone_mass_kg"),
         (&["ecwtbw", "ecwratio"], "ecw_tbw"),
         (&["skeletalmusclemass", "smm"], "smm_kg"),
         (&["bodyfatmass", "bfm"], "body_fat_mass_kg"),
-        (&["percentbodyfat", "pbf", "bodyfat%", "bodyfatpercentage"], "pbf"),
+        (&["percentbodyfat", "pbf", "bodyfat%", "bodyfatpercentage", "bodyfatrate"], "pbf"),
+        (&["fatmass"], "body_fat_mass_kg"),
         (&["leanbodymass", "lbm", "softleanmass"], "lean_body_mass_kg"),
-        (&["fatfreemass", "ffm"], "fat_free_mass_kg"),
+        (&["fatfreemass", "ffm", "fatfreebodyweight"], "fat_free_mass_kg"),
         (&["totalbodywater", "tbw"], "total_body_water_l"),
         (&["intracellularwater", "icw"], "icw_l"),
         (&["extracellularwater", "ecw"], "ecw_l"),
@@ -267,6 +349,8 @@ pub fn guess_inbody_column(header: &str) -> Option<&'static str> {
         (&["protein"], "protein_kg"),
         (&["mineral"], "minerals_kg"),
         (&["bmi", "bodymassindex"], "bmi"),
+        (&["musclemass", "muscle"], "muscle_mass_kg"),
+        (&["bodyfat"], "pbf"),
         (&["weight"], "weight_kg"),
     ];
     table.iter().find(|(keys, _)| keys.iter().any(|k| h.contains(k))).map(|(_, c)| *c)
@@ -296,18 +380,61 @@ fn header_signature(headers: &[String]) -> String {
 impl Db {
     pub fn inbody_scans(&self) -> Result<Vec<InBodyScan>> {
         let cols: Vec<&str> = INBODY_FIELDS.iter().map(|f| f.0).collect();
-        let sql = format!("SELECT id, measured_at_local, device, notes, {} FROM inbody_scan ORDER BY measured_at_local", cols.join(", "));
+        let sql = format!("SELECT id, measured_at_local, device, notes, source, {} FROM inbody_scan ORDER BY measured_at_local", cols.join(", "));
         let mut stmt = self.conn().prepare(&sql)?;
         let rows = stmt.query_map([], |r| {
             let mut values = BTreeMap::new();
             for (i, c) in cols.iter().enumerate() {
-                if let Some(v) = r.get::<_, Option<f64>>(4 + i)? {
+                if let Some(v) = r.get::<_, Option<f64>>(5 + i)? {
                     values.insert(c.to_string(), v);
                 }
             }
-            Ok(InBodyScan { id: r.get(0)?, measured_at_local: r.get(1)?, device: r.get(2)?, notes: r.get(3)?, values })
+            Ok(InBodyScan { id: r.get(0)?, measured_at_local: r.get(1)?, device: r.get(2)?, notes: r.get(3)?, source: r.get(4)?, values })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The scans analyses use (body fat trends, muscle growth, left/right balance, reports): one
+    /// source only, since different BIA devices don't agree with each other. That's the source chosen
+    /// on the Body comp page, else the one with the most scans (InBody on a tie).
+    pub fn analysis_scans(&self) -> Result<Vec<InBodyScan>> {
+        let scans = self.inbody_scans()?;
+        let source = self.analysis_source_of(&scans)?;
+        Ok(scans.into_iter().filter(|s| Some(s.source()) == source.as_deref()).collect())
+    }
+
+    /// See `analysis_scans`; `None` without any scans.
+    pub fn analysis_source(&self) -> Result<Option<String>> {
+        let scans = self.inbody_scans()?;
+        self.analysis_source_of(&scans)
+    }
+
+    fn analysis_source_of(&self, scans: &[InBodyScan]) -> Result<Option<String>> {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for s in scans {
+            *counts.entry(s.source()).or_default() += 1;
+        }
+        if let Some(chosen) = self.setting("body_comp_analysis_source")? {
+            if counts.contains_key(chosen.as_str()) {
+                return Ok(Some(chosen));
+            }
+        }
+        Ok(counts
+            .iter()
+            .max_by_key(|(src, n)| (**n, **src == DEFAULT_SCAN_SOURCE))
+            .map(|(src, _)| src.to_string()))
+    }
+
+    /// Picks the source analyses use; `None` goes back to automatic.
+    pub fn set_analysis_source(&mut self, source: Option<&str>) -> Result<()> {
+        match source {
+            Some(s) if valid_source(s) => self.set_setting("body_comp_analysis_source", s),
+            Some(s) => Err(Error::Format(format!("bad source {s:?}"))),
+            None => {
+                self.conn().execute("DELETE FROM setting WHERE key = 'body_comp_analysis_source'", [])?;
+                Ok(())
+            }
+        }
     }
 
     /// Inserts or replaces a scan (matched by id, else by date/time).
@@ -316,23 +443,74 @@ impl Db {
         if let Some(bad) = s.values.keys().find(|k| !is_field(k)) {
             return Err(Error::Format(format!("unknown InBody field {bad:?}")));
         }
+        let source = s.source();
+        if !valid_source(source) {
+            return Err(Error::Format(format!("bad source {source:?}")));
+        }
         let cols: Vec<&str> = INBODY_FIELDS.iter().map(|f| f.0).collect();
         let vals: Vec<Option<f64>> = cols.iter().map(|c| s.values.get(*c).copied()).collect();
         if let Some(id) = s.id {
             self.conn().execute("DELETE FROM inbody_scan WHERE id = ?1", [id])?;
         }
-        let placeholders: Vec<String> = (0..cols.len()).map(|i| format!("?{}", i + 4)).collect();
+        let placeholders: Vec<String> = (0..cols.len()).map(|i| format!("?{}", i + 5)).collect();
         let sql = format!(
-            "INSERT OR REPLACE INTO inbody_scan (measured_at_local, device, notes, {}) VALUES (?1, ?2, ?3, {})",
+            "INSERT OR REPLACE INTO inbody_scan (measured_at_local, device, notes, source, {}) VALUES (?1, ?2, ?3, ?4, {})",
             cols.join(", "),
             placeholders.join(", ")
         );
-        let mut p: Vec<&dyn rusqlite::ToSql> = vec![&s.measured_at_local, &s.device, &s.notes];
+        let mut p: Vec<&dyn rusqlite::ToSql> = vec![&s.measured_at_local, &s.device, &s.notes, &source];
         for v in &vals {
             p.push(v);
         }
         self.conn().execute(&sql, p.as_slice())?;
-        Ok(self.conn().last_insert_rowid())
+        let id = self.conn().last_insert_rowid();
+        // A home scale is also the everyday bathroom scale: its weight is a weigh-in, unless the same
+        // weigh-in already arrived another way (e.g. Health Connect's weight record).
+        if let (true, Some(w)) = (source != DEFAULT_SCAN_SOURCE, s.values.get("weight_kg")) {
+            if *w > 0.0 {
+                self.conn().execute(
+                    "INSERT OR IGNORE INTO bodyweight (measured_at_local, weight_kg, source)
+                     SELECT ?1, ?2, ?3 WHERE NOT EXISTS (
+                       SELECT 1 FROM bodyweight WHERE abs(julianday(measured_at_local) - julianday(?1)) * 1440 <= 2 AND abs(weight_kg - ?2) < 0.05)",
+                    params![s.measured_at_local, w, source],
+                )?;
+            }
+        }
+        Ok(id)
+    }
+
+    /// Saves a scan from an importer (Bluetooth, Health Connect, screenshots): when a scan from the
+    /// same source is within `SAME_WEIGH_IN_MINUTES`, it's the same weigh-in, so only the fields that
+    /// scan lacks are filled in; nothing already there is overwritten.
+    pub fn merge_body_comp_scan(&mut self, s: &InBodyScan) -> Result<(MergeOutcome, i64)> {
+        let at = crate::strong::parse_datetime(&s.measured_at_local).ok_or_else(|| Error::Format(format!("bad date {:?}", s.measured_at_local)))?;
+        let source = s.source().to_string();
+        let near = self.inbody_scans()?.into_iter().filter(|x| x.source() == source).find(|x| {
+            crate::strong::parse_datetime(&x.measured_at_local).is_some_and(|t| (t - at).num_minutes().abs() <= SAME_WEIGH_IN_MINUTES)
+        });
+        let Some(mut existing) = near else {
+            let mut new = s.clone();
+            new.id = None;
+            new.measured_at_local = at.format(TIME_FMT).to_string();
+            new.source = Some(source);
+            return Ok((MergeOutcome::Inserted, self.save_inbody_scan(&new)?));
+        };
+        let mut changed = false;
+        for (k, v) in &s.values {
+            if !existing.values.contains_key(k) {
+                existing.values.insert(k.clone(), *v);
+                changed = true;
+            }
+        }
+        if existing.device.is_none() && s.device.is_some() {
+            existing.device = s.device.clone();
+            changed = true;
+        }
+        let id = existing.id.expect("stored scans have ids");
+        if !changed {
+            return Ok((MergeOutcome::Unchanged, id));
+        }
+        Ok((MergeOutcome::Merged, self.save_inbody_scan(&existing)?))
     }
 
     pub fn delete_inbody_scan(&mut self, id: i64) -> Result<()> {
@@ -366,7 +544,7 @@ impl Db {
                     }
                 }
             }
-            CsvMapping { date_column, columns, mass_unit: WeightUnit::Kg }
+            CsvMapping { date_column, columns, mass_unit: WeightUnit::Kg, source: None }
         });
         let idx: HashMap<&str, usize> = headers.iter().enumerate().map(|(i, h)| (h.as_str(), i)).collect();
         let mut scans = Vec::new();
@@ -393,7 +571,7 @@ impl Db {
                     Err(_) => errors.push(format!("row {line}: {h} = {raw:?} isn't a number")),
                 }
             }
-            scans.push(InBodyScan { id: None, measured_at_local: date.format(TIME_FMT).to_string(), values, device: None, notes: None });
+            scans.push(InBodyScan { id: None, measured_at_local: date.format(TIME_FMT).to_string(), values, device: None, notes: None, source: mapping.source.clone() });
         }
         Ok(InBodyCsvPreview { headers, mapping, remembered: was_remembered, scans, errors })
     }
@@ -590,6 +768,83 @@ mod tests {
         assert_eq!(db.measurements(Some("waist")).unwrap().len(), 1);
     }
 
+    fn scan(at: &str, source: &str, values: &[(&str, f64)]) -> InBodyScan {
+        InBodyScan {
+            id: None,
+            measured_at_local: at.into(),
+            values: values.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            device: None,
+            notes: None,
+            source: Some(source.into()),
+        }
+    }
+
+    #[test]
+    fn home_scale_scans_merge_and_stay_apart_from_inbody() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.save_inbody_scan(&scan("2026-10-01 09:00:00", "inbody", &[("weight_kg", 80.0), ("pbf", 15.0)])).unwrap();
+        // Over Bluetooth, then the same weigh-in from Health Connect a minute later.
+        let (o, _) = db.merge_body_comp_scan(&scan("2026-11-01 07:00:10", "arboleaf", &[("weight_kg", 79.5), ("pbf", 19.0)])).unwrap();
+        assert_eq!(o, MergeOutcome::Inserted);
+        let (o, _) = db.merge_body_comp_scan(&scan("2026-11-01 07:01:00", "arboleaf", &[("pbf", 19.4), ("bone_mass_kg", 3.2)])).unwrap();
+        assert_eq!(o, MergeOutcome::Merged);
+        let (o, _) = db.merge_body_comp_scan(&scan("2026-11-01 07:01:00", "arboleaf", &[("pbf", 19.4)])).unwrap();
+        assert_eq!(o, MergeOutcome::Unchanged);
+        let scans = db.inbody_scans().unwrap();
+        assert_eq!(scans.len(), 2);
+        let a = &scans[1];
+        assert_eq!((a.source(), a.values["pbf"], a.values["bone_mass_kg"]), ("arboleaf", 19.0, 3.2), "nothing overwritten");
+        // The home scale's weight is a weigh-in; InBody's only shows when asked.
+        let w = db.weigh_ins(false).unwrap();
+        assert_eq!((w.len(), w[0].source.as_str(), w[0].weight_kg), (1, "arboleaf", 79.5));
+        assert_eq!(db.weigh_ins(true).unwrap().len(), 2);
+        // Analyses use one source: the most scans, InBody on a tie, or the chosen one.
+        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("inbody"));
+        db.merge_body_comp_scan(&scan("2026-11-02 07:00:00", "arboleaf", &[("weight_kg", 79.4)])).unwrap();
+        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("arboleaf"));
+        db.set_analysis_source(Some("inbody")).unwrap();
+        assert!(db.analysis_scans().unwrap().iter().all(|s| s.source() == "inbody"));
+        assert!(db.set_analysis_source(Some("Not Valid")).is_err());
+        db.set_analysis_source(None).unwrap();
+        assert_eq!(db.analysis_source().unwrap().as_deref(), Some("arboleaf"));
+    }
+
+    #[test]
+    fn health_connect_body_composition() {
+        use crate::wearables::{BodyCompSample, WearableImport, WeightSample};
+        let mut db = Db::open_in_memory().unwrap();
+        db.save_scale_profile(r#"{"id":"arboleaf","name":"Arboleaf","health_connect_packages":["com.example.Scale"]}"#).unwrap();
+        let vals = |p: &[(&str, f64)]| p.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        let data = WearableImport {
+            weights: vec![WeightSample { at: "2026-11-03 07:00:00".into(), weight_kg: 79.0, source: "com.example.Scale".into() }],
+            body_comp: vec![
+                BodyCompSample { at: "2026-11-03 07:00:00".into(), source: "com.example.Scale".into(), values: vals(&[("weight_kg", 79.0), ("pbf", 18.0), ("bone_mass_kg", 3.1)]) },
+                // A weight alone isn't a scan; unknown fields are dropped.
+                BodyCompSample { at: "2026-11-04 07:00:00".into(), source: "com.example.Scale".into(), values: vals(&[("weight_kg", 78.8), ("mystery", 1.0)]) },
+            ],
+            ..Default::default()
+        };
+        let s = db.import_wearable(&data).unwrap();
+        assert_eq!((s.weights, s.scans), (1, 1));
+        let scans = db.inbody_scans().unwrap();
+        assert_eq!((scans.len(), scans[0].source()), (1, "arboleaf"));
+        // One weigh-in, filed under the profile, not two.
+        let w = db.weigh_ins(false).unwrap();
+        assert_eq!((w.len(), w[0].source.as_str()), (1, "arboleaf"));
+        // Again: nothing new.
+        assert_eq!(db.import_wearable(&data).unwrap().scans, 0);
+        // An app no profile claims: its package (lowercase) is the scan's source, and its weight
+        // isn't counted twice.
+        let other = WearableImport {
+            weights: vec![WeightSample { at: "2026-11-05 07:00:00".into(), weight_kg: 78.0, source: "com.Other.App".into() }],
+            body_comp: vec![BodyCompSample { at: "2026-11-05 07:00:30".into(), source: "com.Other.App".into(), values: vals(&[("weight_kg", 78.0), ("pbf", 17.0)]) }],
+            ..Default::default()
+        };
+        db.import_wearable(&other).unwrap();
+        assert_eq!(db.inbody_scans().unwrap()[1].source(), "com.other.app");
+        assert_eq!(db.weigh_ins(false).unwrap().len(), 2);
+    }
+
     #[test]
     fn inbody_column_guesses() {
         for (h, f) in [
@@ -606,6 +861,20 @@ mod tests {
             ("Lean Mass of Left Leg(%)", "lean_left_leg_pct"),
             ("Trunk Fat Mass", "fat_trunk_kg"),
             ("InBody Score", "inbody_score"),
+            // Home-scale exports.
+            ("Body Fat(%)", "pbf"),
+            ("Body Fat", "pbf"),
+            ("Fat Mass(lb)", "body_fat_mass_kg"),
+            ("Body Water(%)", "body_water_pct"),
+            ("Protein(%)", "protein_pct"),
+            ("Skeletal Muscle(%)", "skeletal_muscle_pct"),
+            ("Muscle Mass(kg)", "muscle_mass_kg"),
+            ("Bone Mass", "bone_mass_kg"),
+            ("Subcutaneous Fat(%)", "subcutaneous_fat_pct"),
+            ("Metabolic Age", "metabolic_age"),
+            ("Fat-free Body Weight", "fat_free_mass_kg"),
+            ("Heart Rate", "heart_rate_bpm"),
+            ("Impedance", "impedance_ohm"),
         ] {
             assert_eq!(guess_inbody_column(h), Some(f), "{h}");
         }

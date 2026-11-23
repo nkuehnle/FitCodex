@@ -7,6 +7,11 @@ import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BasalMetabolicRateRecord
+import androidx.health.connect.client.records.BodyFatRecord
+import androidx.health.connect.client.records.BodyWaterMassRecord
+import androidx.health.connect.client.records.BoneMassRecord
+import androidx.health.connect.client.records.LeanBodyMassRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
@@ -58,8 +63,9 @@ class ReadArgs {
 }
 
 /**
- * Reads what watches and health apps (Garmin Connect, Fitbit, Oura, …) wrote to Health Connect:
- * weigh-ins, exercise sessions, heart rate over FitLedger workouts, sleep, resting HR, HRV and steps.
+ * Reads what watches, scales and health apps (Garmin Connect, Fitbit, Oura, Arboleaf, …) wrote to
+ * Health Connect: weigh-ins, body composition (body fat, lean, bone and water mass, BMR), exercise
+ * sessions, heart rate over FitLedger workouts, sleep, resting HR, HRV and steps.
  * Read-only; returns JSON shaped like fitledger_core::wearables::WearableImport.
  */
 @TauriPlugin
@@ -70,6 +76,8 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         WeightRecord::class, ExerciseSessionRecord::class, HeartRateRecord::class, DistanceRecord::class,
         ActiveCaloriesBurnedRecord::class, SleepSessionRecord::class, RestingHeartRateRecord::class,
         HeartRateVariabilityRmssdRecord::class, StepsRecord::class,
+        BodyFatRecord::class, LeanBodyMassRecord::class, BoneMassRecord::class, BodyWaterMassRecord::class,
+        BasalMetabolicRateRecord::class,
     )
 
     private fun client() = HealthConnectClient.getOrCreate(activity)
@@ -167,6 +175,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             }
         }
         out.put("weights", weights)
+        out.put("body_comp", readBodyComp(c, ::can, after))
 
         val activities = JSArray()
         if (can(ExerciseSessionRecord::class)) {
@@ -259,6 +268,46 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             for ((d, v) in all) day(d).put("hrv_ms", v.average())
         }
         out.put("days", JSArray().apply { days.values.forEach { put(it) } })
+        return out
+    }
+
+    /**
+     * Body composition, one entry per weigh-in: records from the same app within two minutes of
+     * each other are one scan (scale apps write each value as its own record). Values use
+     * fitledger_core::body::INBODY_FIELDS columns; water mass in kg is litres.
+     */
+    private suspend fun readBodyComp(c: HealthConnectClient, can: (KClass<out Record>) -> Boolean, after: TimeRangeFilter): JSArray {
+        data class V(val t: Instant, val off: ZoneOffset?, val origin: DataOrigin, val field: String, val value: Double)
+        val all = mutableListOf<V>()
+        if (can(BodyFatRecord::class)) readRecords(c, BodyFatRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "pbf", it.percentage.value) }
+        if (can(LeanBodyMassRecord::class)) readRecords(c, LeanBodyMassRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "lean_body_mass_kg", it.mass.inKilograms) }
+        if (can(BoneMassRecord::class)) readRecords(c, BoneMassRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "bone_mass_kg", it.mass.inKilograms) }
+        if (can(BodyWaterMassRecord::class)) readRecords(c, BodyWaterMassRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "total_body_water_l", it.mass.inKilograms) }
+        if (can(BasalMetabolicRateRecord::class)) readRecords(c, BasalMetabolicRateRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "bmr_kcal", it.basalMetabolicRate.inKilocaloriesPerDay) }
+        if (all.isEmpty()) return JSArray()
+        // The weight that goes with each scan, from the same app.
+        if (can(WeightRecord::class)) readRecords(c, WeightRecord::class, after).forEach { all += V(it.time, it.zoneOffset, it.metadata.dataOrigin, "weight_kg", it.weight.inKilograms) }
+        val out = JSArray()
+        for ((origin, records) in all.groupBy { it.origin.packageName }) {
+            var group = mutableListOf<V>()
+            fun flush() {
+                if (group.none { it.field != "weight_kg" }) { group = mutableListOf(); return }
+                val first = group.first()
+                val values = JSObject()
+                for (v in group) if (!values.has(v.field)) values.put(v.field, v.value)
+                out.put(JSObject().apply {
+                    put("at", local(first.t, first.off))
+                    put("source", origin)
+                    put("values", values)
+                })
+                group = mutableListOf()
+            }
+            for (v in records.sortedBy { it.t }) {
+                if (group.isNotEmpty() && v.t.epochSecond - group.first().t.epochSecond > 120) flush()
+                group += v
+            }
+            flush()
+        }
         return out
     }
 

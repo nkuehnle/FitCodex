@@ -103,6 +103,28 @@ downloads them (12 MB) into `ocr-models/` in the app data folder and checks thei
 (`fitledger_ocr::ensure_models`). Each value is read from its known place on the sheet and the
 totals are cross-checked; anything doubtful opens in the scan form for a quick check.
 
+**Home scales** (`crates/core/src/scales/`, `src-tauri/src/scales.rs`, `src/components/ScaleTools.tsx`).
+A scale profile (JSON, `data/scales/`; format in its README) says what a device reports: the labels
+its app prints (screenshots are read with `fitledger_ocr::labels`), the Health Connect packages that
+write its data, and how to talk to it over Bluetooth. Scans carry a `source` (the profile id); scans
+of one weigh-in arriving twice (Bluetooth, then Health Connect) merge within 3 min
+(`merge_body_comp_scan`), and analyses use one source (`analysis_scans`). Debug screenshot reading
+with `cargo run --release -p fitledger-ocr --example labels -- img.png specs.json`.
+
+Bluetooth: `ScaleBlePlugin.kt` (Tauri plugin `scaleble`) only scans, connects and moves bytes; the
+UI calls `scale_ble_pump` a few times a second, which feeds notifications through the pure
+`scales::qn::QnSession` state machine and writes its replies. Every frame is kept in a capture log
+(Share capture log in the weigh-in window) that `scale_ble_replay` (Scale profiles) runs through a
+profile on any platform. When a scale stalls, tune `user_key` (8, or 1000 on some firmware) and
+`algorithm` in a custom profile before changing code.
+
+Shared scales: the user number on the scale is per phone (setting `scale_slot.<profile>`), so each
+person's stored weigh-ins stay apart. Weigh-ins the scale kept while disconnected, and Health
+Connect weigh-ins more than max(3 kg, 4 %) from the median of the last 30 days
+(`Db::weigh_in_doubt`), go to `pending_weigh_in` (`crates/core/src/pending.rs`) until the user says
+"That's me" or "Not me"; a rejected one is remembered so re-syncs don't bring it back. Any
+weigh-in saved for today (scale, Health Connect) also switches off that day's weigh-in reminder.
+
 **Cardio.** Runs, rides and rows are distance + time exercises (`crates/core/src/cardio.rs`,
 `src/cardio.ts`). Cardio PRs: longest distance, longest time and fastest pace (sessions of at
 least 400 m). Weekly minutes are compared against a goal (default 150).
