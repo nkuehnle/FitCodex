@@ -2,6 +2,13 @@ import type { DayHealth } from "./api";
 import { isoDate } from "./charts/RangePicker";
 import { parseLocal } from "./format";
 
+/** Today's recovery line, else yesterday's (before the watch has synced today), marked as such. */
+export function latestRecoveryText(days: DayHealth[], date: string): string | null {
+  const yesterday = isoDate(new Date(parseLocal(date).getTime() - 86400000));
+  const y = recoveryText(days, yesterday);
+  return recoveryText(days, date) ?? (y && `Yesterday: ${y}`);
+}
+
 /** "Slept 7h 12m · resting HR 52 (usual 54) · HRV 61 ms (usual 58) · 8,204 steps" for today, from the watch. */
 export function recoveryText(days: DayHealth[], date: string): string | null {
   const d = days.find((x) => x.date === date);

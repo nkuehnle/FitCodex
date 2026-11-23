@@ -30,11 +30,12 @@ import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format"
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { PhaseSplitCard } from "../components/PhaseSplitCard";
 import { IS_ANDROID, fileToBase64 } from "../platform";
-import { BluetoothWeighIn, ImpedanceCard, PendingWeighIns, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
+import { BluetoothWeighIn, ImpedanceCard, PendingWeighIns, QuickScaleButton, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
+import { RecoveryLine, RecoveryTab } from "../components/RecoveryTab";
 import { isPumped, pumpRatio } from "../pump";
 
 const KG_PER_LB = 0.45359237;
-type Tab = "weight" | "inbody" | "diet" | "parts";
+type Tab = "weight" | "inbody" | "diet" | "parts" | "recovery";
 
 export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
   // Bumped when a held weigh-in is saved, to reload the tab.
@@ -42,12 +43,16 @@ export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
   return (
     <div className="page">
       <h1 className="page-title">Measure</h1>
-      <PendingWeighIns onChanged={() => setRev((r) => r + 1)} />
+      <div className="measure-quick">
+        <RecoveryLine />
+        <QuickScaleButton label="⚖ Weigh in" onSaved={() => setRev((r) => r + 1)} />
+      </div>
+      <PendingWeighIns key={`p${rev}`} onChanged={() => setRev((r) => r + 1)} />
       <GoalPanel />
       <div className="segmented tabs-scroll">
-        {(["weight", "parts", "inbody", "diet"] as Tab[]).map((t) => (
+        {(["weight", "parts", "inbody", "diet", "recovery"] as Tab[]).map((t) => (
           <a key={t} href={`#/body/${t}`} className={tab === t ? "seg-link active" : "seg-link"}>
-            {{ weight: "Weight", parts: "Body parts", inbody: "Body comp", diet: "Calories" }[t]}
+            {{ weight: "Weight", parts: "Body parts", inbody: "Body comp", diet: "Calories", recovery: "Recovery" }[t]}
           </a>
         ))}
       </div>
@@ -61,6 +66,7 @@ export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
         </>
       )}
       {tab === "diet" && <DietTab />}
+      {tab === "recovery" && <RecoveryTab />}
     </div>
   );
 }

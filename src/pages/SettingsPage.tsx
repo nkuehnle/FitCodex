@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePrefs, type Theme } from "../App";
-import { api, type WeightUnit } from "../api";
+import { api, type ScaleProfile, type WeightUnit } from "../api";
+import { QUICK_WEIGH_IN_KEY } from "../components/ScaleTools";
 import { ReportCard } from "../components/ReportCard";
 import { WearablesCard } from "../components/WearablesCard";
 import { IS_ANDROID } from "../platform";
@@ -47,12 +48,45 @@ function WeighInDays() {
           <input className="input" type="time" value={plan.times[d]!} onChange={(e) => e.target.value && setTime(d, e.target.value)} />
         </label>
       ))}
+      <QuickWeighInChoice />
       <p className="muted small">
         {IS_ANDROID
           ? "A notification reminds you on these days, unless you've already logged a weight that day."
           : "The Workouts tab reminds you on these days. On Android you also get a notification."}
       </p>
     </section>
+  );
+}
+
+/** How the quick weigh-in (Workouts tab, top of Measure) works: type it in, or a Bluetooth scale. */
+function QuickWeighInChoice() {
+  const [value, setValue] = useState<string | null>(null);
+  const [scales, setScales] = useState<ScaleProfile[]>([]);
+  useEffect(() => {
+    if (!IS_ANDROID) return;
+    api.getSetting(QUICK_WEIGH_IN_KEY).then((v) => setValue(v ?? ""));
+    api.scaleProfiles().then((ps) => setScales(ps.filter((p) => p.bluetooth)));
+  }, []);
+  if (value === null || !scales.length) return null;
+  return (
+    <label className="row small">
+      Quick weigh-in
+      <select
+        className="select inline"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          api.setSetting(QUICK_WEIGH_IN_KEY, e.target.value);
+        }}
+      >
+        <option value="">Type it in</option>
+        {scales.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} scale (Bluetooth)
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

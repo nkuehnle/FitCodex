@@ -115,15 +115,25 @@ Bluetooth: `ScaleBlePlugin.kt` (Tauri plugin `scaleble`) only scans, connects an
 UI calls `scale_ble_pump` a few times a second, which feeds notifications through the pure
 `scales::qn::QnSession` state machine and writes its replies. Every frame is kept in a capture log
 (Share capture log in the weigh-in window) that `scale_ble_replay` (Scale profiles) runs through a
-profile on any platform. When a scale stalls, tune `user_key` (8, or 1000 on some firmware) and
-`algorithm` in a custom profile before changing code.
+profile on any platform. When a scale stalls, tune `user_key` (1000 is what the Arboleaf, Feelfit
+and GE apps register users with; 8 was the old default) and `algorithm` in a custom profile before
+changing code. The scale should be set up once in its own app with the user as first user (on many
+models only that user gets the scale's body composition), and that app closed while weighing in.
 
 Shared scales: the user number on the scale is per phone (setting `scale_slot.<profile>`), so each
 person's stored weigh-ins stay apart. Weigh-ins the scale kept while disconnected, and Health
 Connect weigh-ins more than max(3 kg, 4 %) from the median of the last 30 days
 (`Db::weigh_in_doubt`), go to `pending_weigh_in` (`crates/core/src/pending.rs`) until the user says
 "That's me" or "Not me"; a rejected one is remembered so re-syncs don't bring it back. Any
-weigh-in saved for today (scale, Health Connect) also switches off that day's weigh-in reminder.
+weigh-in saved for today (scale, Health Connect) also switches off that day's weigh-in reminder. The
+quick ⚖ Weigh in button (Today, top of Measure; setting `quick_weigh_in`) opens the weigh-in window
+on the chosen profile.
+
+**Health Connect sync** (`autoSyncHealthConnect` in `WearablesCard.tsx`) runs when the app opens,
+when it comes back to the front and every 30 minutes while open, skipping if it synced in the last
+15 minutes; a sync that added anything fires `health-synced` on `window` so Today and the Recovery
+tab reload. Nothing syncs while the app is closed (that would need Health Connect's background-read
+permission and a worker).
 
 **Cardio.** Runs, rides and rows are distance + time exercises (`crates/core/src/cardio.rs`,
 `src/cardio.ts`). Cardio PRs: longest distance, longest time and fastest pace (sessions of at

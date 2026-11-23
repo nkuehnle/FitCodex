@@ -95,11 +95,18 @@ export default function App() {
       api.autoBackup(false).catch(() => {});
       api.driveBackup(false).catch(() => {});
     }, 5000);
-    // New data from the watch (Health Connect), once connected.
-    const t2 = setTimeout(() => autoSyncHealthConnect().catch(() => {}), 3000);
+    // New data from the watch (Health Connect), once connected: on start, on coming back to the
+    // app, and every 30 minutes while it's open (autoSyncHealthConnect skips if synced lately).
+    const sync = () => autoSyncHealthConnect().catch(() => {});
+    const t2 = setTimeout(sync, 3000);
+    const t3 = setInterval(sync, 30 * 60_000);
+    const onVisible = () => document.visibilityState === "visible" && sync();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearTimeout(t);
       clearTimeout(t2);
+      clearInterval(t3);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
   useEffect(() => {
@@ -151,7 +158,7 @@ export default function App() {
       page = <CardioPage log={a === "log"} />;
       break;
     case "body":
-      page = <BodyPage tab={((a === "fat" ? "inbody" : a) as "weight" | "inbody" | "diet" | "parts") ?? "weight"} part={b} />;
+      page = <BodyPage tab={((a === "fat" ? "inbody" : a) as "weight" | "inbody" | "diet" | "parts" | "recovery") ?? "weight"} part={b} />;
       break;
     case "plan":
       page = (

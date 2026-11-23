@@ -350,7 +350,7 @@ impl QnSession {
             0xa1 if d.len() >= 5 && d[2] == 0x02 => {
                 if d[4] == 0 {
                     step.notes.push(format!(
-                        "the scale refused the user profile (user key {}); if no weight comes through, try another user_key (e.g. 1000) in the scale profile",
+                        "the scale refused the user profile (user key {}); if no weight comes through, try another user_key (1000 is the Arboleaf app's, 8 an older default) in the scale profile",
                         self.cfg.bluetooth.user_key
                     ));
                 }
@@ -626,8 +626,8 @@ mod tests {
         assert_eq!(st.writes[0], f(&[0x20, 0x08, 0xff, secs[0], secs[1], secs[2], secs[3]]));
         assert_eq!(st.writes[1], f(&[0xa2, 0x06, 0x01, 0x32, 34]));
         let st = s.on_notification(&f(&[0x21, 0x05, 0xff, 0x00]), now);
-        // Slot 1, key 8, male, 34, 1800 mm, algorithm 4; then start for slot 1 (mask 0b11).
-        assert_eq!(st.writes, vec![f(&[0xa0, 0x0d, 0x02, 0x01, 0x00, 0x08, 0x00, 34, 0x07, 0x08, 0x04, 0x02]), f(&[0x22, 0x06, 0xff, 0x00, 0x03])]);
+        // Slot 1, key 1000 (the Arboleaf app's), male, 34, 1800 mm, algorithm 4; then start for slot 1 (mask 0b11).
+        assert_eq!(st.writes, vec![f(&[0xa0, 0x0d, 0x02, 0x01, 0x03, 0xe8, 0x00, 34, 0x07, 0x08, 0x04, 0x02]), f(&[0x22, 0x06, 0xff, 0x00, 0x03])]);
         // Asked once only; and a refusal is explained.
         assert!(s.on_notification(&f(&[0x21, 0x05, 0xff, 0x00]), now).writes.is_empty());
         assert!(s.on_notification(&f(&[0xa1, 0x06, 0x02, 0x01, 0x00]), now).notes[0].contains("user_key"));

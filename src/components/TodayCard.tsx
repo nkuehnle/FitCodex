@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, type DayHealth, type EnergyPoint, type FatigueReport, type WeighInRow } from "../api";
-import { recoveryText } from "../recovery";
+import { latestRecoveryText } from "../recovery";
 import { usePrefs } from "../App";
 import { today } from "../charts/RangePicker";
 import { nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { isWeighDay, loadWeighInPlan, type WeighInPlan } from "../weighIn";
+import { QuickScaleButton } from "./ScaleTools";
+import { HEALTH_SYNCED } from "./WearablesCard";
 
 const KG_PER_LB = 0.45359237;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -29,6 +31,11 @@ export function TodayCard() {
     api.energyBalance(14).then(setEnergy);
     api.currentGoal().then(setGoal);
   };
+  useEffect(() => {
+    // A Health Connect sync can bring weigh-ins and last night's sleep.
+    window.addEventListener(HEALTH_SYNCED, load);
+    return () => window.removeEventListener(HEALTH_SYNCED, load);
+  }, []);
   useEffect(() => {
     load();
     loadWeighInPlan().then(setPlan);
@@ -58,7 +65,7 @@ export function TodayCard() {
   const kcal = (v: number) => Math.round(v).toLocaleString();
   const close = s?.offKcal != null && Math.abs(s.offKcal) <= 100;
   const stale = last && parseLocal(last.at).getTime() < Date.now() - 10 * 86400000;
-  const recovery = recoveryText(days, today());
+  const recovery = latestRecoveryText(days, today());
   return (
     <section className="card today-card">
       {toCheck > 0 && (
@@ -134,6 +141,7 @@ export function TodayCard() {
             <button className="button" disabled={!Number(entry)} onClick={add}>
               Log
             </button>
+            <QuickScaleButton label="⚖" onSaved={load} />
           </div>
         </div>
       </div>

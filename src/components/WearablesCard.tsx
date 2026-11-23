@@ -16,13 +16,18 @@ export function summaryText(s: WearableSummary): string {
   return parts.length ? `Added ${parts.join(", ")}.` : "Nothing new.";
 }
 
-/** Sync from Health Connect at most hourly, after the app opens (Android, once connected). */
+/** Fired on `window` after a Health Connect sync added something, so screens can reload. */
+export const HEALTH_SYNCED = "health-synced";
+
+/** Sync from Health Connect (Android, once connected), at most every 15 minutes: the app calls
+ *  this when it opens, when it comes back to the front, and every 30 minutes while open. */
 export async function autoSyncHealthConnect() {
   if (!IS_ANDROID) return;
   const s = await api.healthConnectStatus();
   if (s.available !== "yes" || s.granted === 0) return;
-  if (s.synced_at && Date.now() - parseLocal(s.synced_at).getTime() < 3600_000) return;
-  await api.healthConnectSync();
+  if (s.synced_at && Date.now() - parseLocal(s.synced_at).getTime() < 15 * 60_000) return;
+  const r = await api.healthConnectSync();
+  if (summaryText(r) !== "Nothing new.") window.dispatchEvent(new Event(HEALTH_SYNCED));
 }
 
 function HealthConnectSection() {
@@ -91,7 +96,7 @@ function HealthConnectSection() {
       <p className="small muted">
         Your watch's app has to share with Health Connect too. In Garmin Connect, look under Settings › Connected Apps › Health Connect;
         Fitbit and Oura have the same switch in their settings, and so do smart-scale apps such as Arboleaf (body fat, lean, bone and
-        water mass then arrive as body-composition scans). FitLedger syncs when you open it, at most once an hour.
+        water mass then arrive as body-composition scans). FitLedger syncs when you open it or come back to it, and every 30 minutes while it's open.
       </p>
     </>
   );

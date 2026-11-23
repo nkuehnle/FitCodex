@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type BiaEstimate, type InBodyField, type InBodyScan, type PendingWeighIn, type ScaleDevice, type ScaleProfile } from "../api";
 import { usePrefs } from "../App";
 import { formatDate, formatTime, toUnit } from "../format";
-import { saveOrShareText } from "../platform";
+import { IS_ANDROID, saveOrShareText } from "../platform";
 import { Modal, ask } from "./Modal";
 
 /** Source label for a scan: its profile's name, else its source id. */
@@ -37,6 +37,52 @@ function ValuesTable({ scan, fields, unit }: { scan: InBodyScan; fields: InBodyF
 }
 
 // ---- Bluetooth weigh-in ----------------------------------------------------------------------------
+
+// ---- Quick weigh-in ---------------------------------------------------------------------------------
+
+/** Setting: the scale profile the quick Scale button weighs in on (empty: type the weight in). */
+export const QUICK_WEIGH_IN_KEY = "quick_weigh_in";
+
+/** One-tap Bluetooth weigh-in on the scale chosen in Settings (Android); nothing otherwise. */
+export function QuickScaleButton({ onSaved, label = "⚖ Scale" }: { onSaved: (msg: string) => void; label?: string }) {
+  const { unit } = usePrefs();
+  const [profile, setProfile] = useState<ScaleProfile | null>(null);
+  const [fields, setFields] = useState<InBodyField[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!IS_ANDROID) return;
+    Promise.all([api.getSetting(QUICK_WEIGH_IN_KEY), api.scaleProfiles()])
+      .then(([id, ps]) => setProfile(ps.find((p) => p.id === id && p.bluetooth) ?? null))
+      .catch(() => {});
+  }, []);
+  if (!profile) return null;
+  return (
+    <>
+      <button
+        className="button"
+        title={`Weigh in on the ${profile.name} scale`}
+        onClick={() => {
+          api.inbodyFields().then(setFields);
+          setOpen(true);
+        }}
+      >
+        {label}
+      </button>
+      {open && fields && (
+        <BluetoothWeighIn
+          profile={profile}
+          fields={fields}
+          unit={unit}
+          onClose={() => setOpen(false)}
+          onSaved={(m) => {
+            setOpen(false);
+            onSaved(m);
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 // ---- Weigh-ins to check -------------------------------------------------------------------------
 
@@ -215,11 +261,29 @@ export function BluetoothWeighIn({
         </label>
       )}
       {(phase === "scan" || phase === "pick") && (
-        <p className="muted small">
-          Sharing the scale? Everyone picks a different number in FitLedger on their own phone, so the scale keeps your weigh-ins
-          apart. The scale works out body composition from your height, age and sex, so only weigh in while it's connected to your
-          own phone.
-        </p>
+        <>
+          <p className="muted small">
+            Sharing the scale? Everyone picks a different number in FitLedger on their own phone, so the scale keeps your weigh-ins
+            apart. User 1 is the first user in the {profile.name} app: on many models only user 1 gets the scale's own body
+            composition, and everyone else gets their weight. The scale works out body composition from your height, age and sex, so
+            only weigh in while it's connected to your own phone.
+          </p>
+          <details className="small">
+            <summary>First time with this scale?</summary>
+            <ol>
+              <li>
+                Set the scale up once in the {profile.name} app, with you as its first user and the same birth date, height and sex
+                as in FitLedger. That registers you on the scale.
+              </li>
+              <li>Close the {profile.name} app (swipe it away): the scale talks to one app at a time. No pairing in Android's Bluetooth settings is needed.</li>
+              <li>Step on barefoot to wake the scale, pick it in the list, and stay on until body composition finishes (about 15 s after the weight settles).</li>
+              <li>
+                Only your weight comes through? Under Scale profiles, edit a copy of {profile.name} and try "user_key": 8 instead of
+                1000. Still stuck: Share capture log below.
+              </li>
+            </ol>
+          </details>
+        </>
       )}
       {phase === "scan" && <p className="small">Looking for the scale… step on it briefly to wake it up.</p>}
       {phase === "pick" && (

@@ -119,7 +119,10 @@ from **Settings → Import, export & backup → Restore…**.
   **Bluetooth** on Android, read the scale app's screenshots, or pick up its body fat, lean, bone
   and water mass from Health Connect. Each device's scans are charted as their own line (BIA devices
   don't agree with each other), analyses use one device you choose, and raw impedance is kept. A
-  scale weigh-in is also your weigh-in for the day. New scales usually need only a
+  scale weigh-in is also your weigh-in for the day. Pick the scale as your quick weigh-in in
+  Settings for a one-tap **⚖ Weigh in** on Today and at the top of Measure. Set the scale up once
+  in its own app (you as its first user), then close that app while weighing in with FitLedger; no
+  Android Bluetooth pairing is needed. New scales usually need only a
   [scale profile](data/scales/README.md), not code.
 - **Shared scales:** each person picks their own user number on the scale in their own copy of
   FitLedger, and FitLedger only listens to the scale while its weigh-in window is open. Anything
@@ -154,9 +157,11 @@ from **Settings → Import, export & backup → Restore…**.
 - **Health Connect** sync on Android: FitLedger reads what your watch or ring app shares with
   Android's Health Connect (Garmin Connect, Fitbit, Oura and others can). That covers weight,
   workouts, heart rate, sleep, resting heart rate, HRV and steps, as far as each app shares them.
-  There are no direct connections to Garmin, Fitbit or Oura accounts.
+  There are no direct connections to Garmin, Fitbit or Oura accounts. It syncs when the app opens,
+  when you come back to it, and every 30 minutes while it's open.
 - **Garmin .fit file import** on any platform (single activities or a full account export).
-- Heart rate on the workout screen and a recovery line on Today.
+- Heart rate on the workout screen, a recovery line on Today and at the top of Measure, and a
+  **Recovery** tab: sleep, resting heart rate, HRV and steps, this week against your usual, charted.
 
 ### Your data
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayHealth } from "./api";
-import { recoveryText } from "./recovery";
+import { latestRecoveryText, recoveryText } from "./recovery";
 
 const day = (date: string, d: Partial<DayHealth>): DayHealth => ({
   date,
@@ -21,7 +21,18 @@ describe("recoveryText", () => {
     );
   });
   it("leaves out the usual with under a week of history, and is empty without today", () => {
-    expect(recoveryText([day("2026-11-02", { resting_hr: 50 }), day("2026-11-03", { resting_hr: 52 })], "2026-11-03")).toBe("resting HR 52");
+    expect(recoveryText([day("2026-11-02", { resting_hr: 50 }), day("2026-11-03", { resting_hr: 52 })], "2026-11-03")).toBe(
+      "resting HR 52",
+    );
     expect(recoveryText([day("2026-11-02", { resting_hr: 50 })], "2026-11-03")).toBeNull();
+  });
+});
+
+describe("latestRecoveryText", () => {
+  it("falls back to yesterday before today has synced, and says so", () => {
+    const days = [day("2026-11-02", { sleep_s: 8 * 3600 })];
+    expect(latestRecoveryText(days, "2026-11-03")).toBe("Yesterday: Slept 8h 00m");
+    expect(latestRecoveryText([...days, day("2026-11-03", { steps: 10 })], "2026-11-03")).toBe("10 steps");
+    expect(latestRecoveryText(days, "2026-11-05")).toBeNull();
   });
 });

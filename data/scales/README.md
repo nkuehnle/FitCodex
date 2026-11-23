@@ -13,7 +13,8 @@ usually needs only a profile, not code.
   "bluetooth": {                    // optional: weigh in over Bluetooth
     "protocol": "qn",               // only "qn" (Qingniu / QN-Scale family) so far
     "names": ["QN-Scale"],          // advertised names to look for
-    "user_key": 8,                  // user key in the profile frame; some firmware wants 1000
+    "user_key": 1000,               // user key in the profile frame: the one the vendor app
+                                    // registered users with (Arboleaf/Feelfit/GE apps: 1000)
     "algorithm": 4,                 // body-fat algorithm byte in the profile frame
     "slot": 1,                      // default user slot on the scale (1–8); each phone can pick
                                     // its own in the weigh-in window, so a household shares a scale
