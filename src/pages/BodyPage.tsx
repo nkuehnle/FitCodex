@@ -30,16 +30,19 @@ import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format"
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { PhaseSplitCard } from "../components/PhaseSplitCard";
 import { IS_ANDROID, fileToBase64 } from "../platform";
-import { BluetoothWeighIn, ImpedanceCard, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
+import { BluetoothWeighIn, ImpedanceCard, PendingWeighIns, ScaleProfilesModal, sourceName } from "../components/ScaleTools";
 import { isPumped, pumpRatio } from "../pump";
 
 const KG_PER_LB = 0.45359237;
 type Tab = "weight" | "inbody" | "diet" | "parts";
 
 export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
+  // Bumped when a held weigh-in is saved, to reload the tab.
+  const [rev, setRev] = useState(0);
   return (
     <div className="page">
       <h1 className="page-title">Measure</h1>
+      <PendingWeighIns onChanged={() => setRev((r) => r + 1)} />
       <GoalPanel />
       <div className="segmented tabs-scroll">
         {(["weight", "parts", "inbody", "diet"] as Tab[]).map((t) => (
@@ -48,13 +51,13 @@ export default function BodyPage({ tab, part }: { tab: Tab; part?: string }) {
           </a>
         ))}
       </div>
-      {tab === "weight" && <BodyweightTab />}
+      {tab === "weight" && <BodyweightTab key={rev} />}
       {tab === "parts" && <BodyPartsTab part={part} />}
       {/* Body comp: body fat and muscle/fat mass (measured and estimated), then InBody scans. */}
       {tab === "inbody" && (
         <>
-          <BodyFatTab />
-          <InBodyTab />
+          <BodyFatTab key={`f${rev}`} />
+          <InBodyTab key={`s${rev}`} />
         </>
       )}
       {tab === "diet" && <DietTab />}

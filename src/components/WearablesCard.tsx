@@ -10,6 +10,7 @@ export function summaryText(s: WearableSummary): string {
     s.workouts_hr && `heart rate on ${s.workouts_hr} workout${s.workouts_hr === 1 ? "" : "s"}`,
     s.weights && `${s.weights} weigh-in${s.weights === 1 ? "" : "s"}`,
     s.scans && `${s.scans} body-composition scan${s.scans === 1 ? "" : "s"}`,
+    s.held && `${s.held} weigh-in${s.held === 1 ? "" : "s"} to check under Measure`,
     s.days && `${s.days} day${s.days === 1 ? "" : "s"} of sleep/recovery`,
   ].filter(Boolean);
   return parts.length ? `Added ${parts.join(", ")}.` : "Nothing new.";

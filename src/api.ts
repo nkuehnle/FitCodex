@@ -206,6 +206,8 @@ export interface WearableSummary {
   days: number;
   /** Body-composition scans added or filled in (smart scales' apps). */
   scans?: number;
+  /** Weigh-ins held for checking (far from your recent weight: maybe someone else's). */
+  held?: number;
 }
 
 export interface HealthConnectStatus {
@@ -639,8 +641,18 @@ export interface ScalePump {
   live_weight_kg: number | null;
   stable: boolean;
   readings: InBodyScan[];
+  /** Replay only: a live session holds these for checking (`held`). */
   stored: InBodyScan[];
+  /** Weigh-ins the scale kept from before, now waiting under pendingWeighIns. */
+  held: number;
   notes: string[];
+}
+
+/** A weigh-in that may be someone else's (shared scale or app), waiting for "That's me" / "Not me". */
+export interface PendingWeighIn {
+  id: number;
+  scan: InBodyScan;
+  reason: string;
 }
 
 export interface MergeSummary {
@@ -984,6 +996,11 @@ export const api = {
   saveScaleProfile: (json: string) => invoke<ScaleProfile>("save_scale_profile", { json }),
   deleteScaleProfile: (id: string) => invoke<void>("delete_scale_profile", { id }),
   mergeBodyCompScans: (scans: InBodyScan[]) => invoke<MergeSummary>("merge_body_comp_scans", { scans }),
+  pendingWeighIns: () => invoke<PendingWeighIn[]>("pending_weigh_ins"),
+  /** `mine` saves it; otherwise it's dropped and never offered again. */
+  resolvePendingWeighIn: (id: number, mine: boolean) => invoke<void>("resolve_pending_weigh_in", { id, mine }),
+  /** Why a weigh-in might not be yours (far from your recent weight), or null. */
+  weighInDoubt: (at: string, weightKg: number) => invoke<string | null>("weigh_in_doubt", { at, weightKg }),
   biaEstimate: (values: Record<string, number>) => invoke<BiaEstimate | null>("bia_estimate", { values }),
   /** On-device OCR of a scale app screenshot with a profile's labels; masses in kg. */
   readBodyCompScreenshot: (data: string, profile: string, massUnit: "kg" | "lb") =>

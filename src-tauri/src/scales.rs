@@ -65,8 +65,8 @@ pub struct MergeSummary {
 
 /// Saves scans from an importer, merging each with a scan of the same weigh-in.
 #[tauri::command]
-pub fn merge_body_comp_scans(state: State<AppState>, scans: Vec<InBodyScan>) -> CmdResult<MergeSummary> {
-    with(&state, |db| {
+pub fn merge_body_comp_scans(app: tauri::AppHandle, state: State<AppState>, scans: Vec<InBodyScan>) -> CmdResult<MergeSummary> {
+    let out = with(&state, |db| {
         let mut out = MergeSummary::default();
         for s in &scans {
             match db.merge_body_comp_scan(s)?.0 {
@@ -76,7 +76,29 @@ pub fn merge_body_comp_scans(state: State<AppState>, scans: Vec<InBodyScan>) -> 
             }
         }
         Ok(out)
-    })
+    })?;
+    crate::weigh_in_reminder_check(&app, &state)?;
+    Ok(out)
+}
+
+// ---- Weigh-ins to check (shared scales) ------------------------------------------------------------
+
+#[tauri::command]
+pub fn pending_weigh_ins(state: State<AppState>) -> CmdResult<Vec<fitledger_core::pending::PendingWeighIn>> {
+    with(&state, |db| db.pending_weigh_ins())
+}
+
+/// "That's me" (`mine`) saves the weigh-in; "Not me" drops it for good.
+#[tauri::command]
+pub fn resolve_pending_weigh_in(app: tauri::AppHandle, state: State<AppState>, id: i64, mine: bool) -> CmdResult<()> {
+    with(&state, |db| db.resolve_pending_weigh_in(id, mine))?;
+    crate::weigh_in_reminder_check(&app, &state)
+}
+
+/// Why a weigh-in might be someone else's (far from your recent weight), if it might.
+#[tauri::command]
+pub fn weigh_in_doubt(state: State<AppState>, at: String, weight_kg: f64) -> CmdResult<Option<String>> {
+    with(&state, |db| db.weigh_in_doubt(&at, weight_kg))
 }
 
 struct Person {
@@ -209,12 +231,19 @@ async fn ble_call(app: &tauri::AppHandle, method: &'static str, args: serde_json
     }
 }
 
+/// Setting with this phone's user number on a scale (`<key><profile id>`): each person in a
+/// household uses their own number, so the scale keeps their weigh-ins apart.
+const SLOT_KEY: &str = "scale_slot.";
+
 fn session_for(db: &Db, profile: &str, unit_lb: bool) -> fitledger_core::Result<(QnSession, ScaleProfile)> {
     let profile = db.scale_profile(profile)?;
-    let bluetooth = profile
+    let mut bluetooth = profile
         .bluetooth
         .clone()
         .ok_or_else(|| fitledger_core::Error::Format(format!("the {} profile has no Bluetooth settings", profile.name)))?;
+    if let Some(slot) = db.setting(&format!("{SLOT_KEY}{}", profile.id))?.and_then(|s| s.parse::<u8>().ok()).filter(|s| (1..=8).contains(s)) {
+        bluetooth.slot = slot;
+    }
     let p = person(db)?;
     let (Some(age), Some(height_cm)) = (p.age, p.height_cm) else {
         return Err(fitledger_core::Error::Format("set your sex, height and birth year under Body → Body comp first: the scale needs them".into()));
@@ -251,8 +280,10 @@ pub struct PumpResult {
     stable: bool,
     /// A finished weigh-in, as a scan ready to save.
     readings: Vec<InBodyScan>,
-    /// Weigh-ins the scale kept from before.
+    /// Weigh-ins the scale kept from before (replay only: a live session holds them for checking).
     stored: Vec<InBodyScan>,
+    /// Weigh-ins the scale kept from before, now waiting to be checked (see `pending_weigh_ins`).
+    held: usize,
     notes: Vec<String>,
 }
 
@@ -274,7 +305,7 @@ fn to_scan(r: &QnReading, profile: &ScaleProfile) -> InBodyScan {
 
 /// Feeds every frame received since the last call through the session and sends its replies.
 #[tauri::command]
-pub async fn scale_ble_pump(app: tauri::AppHandle, ble: State<'_, ScaleBle>) -> CmdResult<PumpResult> {
+pub async fn scale_ble_pump(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>) -> CmdResult<PumpResult> {
     let polled = ble_call(&app, "poll", serde_json::json!({})).await?;
     let mut out = PumpResult {
         state: polled["state"].as_str().unwrap_or("idle").to_string(),
@@ -309,7 +340,18 @@ pub async fn scale_ble_pump(app: tauri::AppHandle, ble: State<'_, ScaleBle>) -> 
                 out.stable = st.stable;
             }
             out.readings.extend(st.readings.iter().map(|r| to_scan(r, &s.profile)));
-            out.stored.extend(st.stored.iter().map(|r| to_scan(r, &s.profile)));
+            // Weigh-ins the scale kept while no phone was connected may be anyone's who used it:
+            // they wait for "That's me" or "Not me".
+            for r in &st.stored {
+                let scan = to_scan(r, &s.profile);
+                let when = scan.measured_at_local.clone();
+                let user = r.slot.map(|n| format!(" (user {n} on the scale)")).unwrap_or_default();
+                with(&state, |db| {
+                    let doubt = db.weigh_in_doubt(&when, r.weight_kg)?.map(|d| format!("; {d}")).unwrap_or_default();
+                    db.hold_weigh_in(&scan, &format!("Kept on the scale while no phone was connected{user}{doubt}: is this you?"))
+                })?;
+                out.held += 1;
+            }
             for n in st.notes {
                 s.log.push(format!("# {n}"));
                 out.notes.push(n);
@@ -388,6 +430,20 @@ mod tests {
         assert_eq!((s.source.as_deref(), s.values["weight_kg"], s.values["impedance_ohm"]), (Some("arboleaf"), 80.0, 502.0));
         db.merge_body_comp_scan(s).unwrap();
         assert_eq!(db.weigh_ins(false).unwrap()[0].source, "arboleaf");
+    }
+
+    #[test]
+    fn each_phone_uses_its_own_user_number() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.set_setting("sex", "male").unwrap();
+        db.set_setting("birth_year", "1991").unwrap();
+        db.set_setting("height_cm", "180").unwrap();
+        assert_eq!(session_for(&db, "arboleaf", false).unwrap().0.profile_frame()[3], 1);
+        db.set_setting("scale_slot.arboleaf", "3").unwrap();
+        let (qn, _) = session_for(&db, "arboleaf", false).unwrap();
+        // Profile frame and start frame (stored weigh-ins for unassigned + user 3) use it.
+        assert_eq!(qn.profile_frame()[3], 3);
+        assert_eq!(qn.start_frame()[4], 0b1001);
     }
 
     #[test]

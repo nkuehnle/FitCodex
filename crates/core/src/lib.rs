@@ -13,6 +13,7 @@ pub mod live;
 pub mod matcher;
 pub mod norms;
 pub mod optimizer;
+pub mod pending;
 pub mod planning;
 pub mod report;
 pub mod response;

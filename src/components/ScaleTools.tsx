@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type BiaEstimate, type InBodyField, type InBodyScan, type ScaleDevice, type ScaleProfile } from "../api";
+import { api, type BiaEstimate, type InBodyField, type InBodyScan, type PendingWeighIn, type ScaleDevice, type ScaleProfile } from "../api";
+import { usePrefs } from "../App";
 import { formatDate, formatTime, toUnit } from "../format";
 import { saveOrShareText } from "../platform";
 import { Modal, ask } from "./Modal";
@@ -37,8 +38,57 @@ function ValuesTable({ scan, fields, unit }: { scan: InBodyScan; fields: InBodyF
 
 // ---- Bluetooth weigh-in ----------------------------------------------------------------------------
 
-/** Weigh in on a Bluetooth scale (Android): find it, connect, step on, save. Also offers any
- *  weigh-ins the scale kept from while no phone was connected. */
+// ---- Weigh-ins to check -------------------------------------------------------------------------
+
+/** Weigh-ins that may be someone else's (a shared scale or app), each waiting for "That's me" or
+ *  "Not me". Shows nothing when there are none. */
+export function PendingWeighIns({ onChanged }: { onChanged: () => void }) {
+  const { unit } = usePrefs();
+  const [items, setItems] = useState<PendingWeighIn[]>([]);
+  const load = () => api.pendingWeighIns().then(setItems).catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+  if (!items.length) return null;
+  const resolve = async (id: number, mine: boolean) => {
+    await api.resolvePendingWeighIn(id, mine);
+    await load();
+    onChanged();
+  };
+  return (
+    <section className="card">
+      <h2 className="section-title">
+        {items.length} weigh-in{items.length > 1 ? "s" : ""} to check
+      </h2>
+      <p className="muted small">Someone else may have used the scale. Nothing here is saved until you say it's you.</p>
+      {items.map((p) => (
+        <div key={p.id} className="start-row">
+          <span>
+            <strong>
+              {formatDate(p.scan.measured_at_local)} {formatTime(p.scan.measured_at_local)} ·{" "}
+              {toUnit(p.scan.values.weight_kg, unit).toFixed(1)} {unit}
+            </strong>
+            {p.scan.values.pbf != null && <span className="muted"> · {p.scan.values.pbf}% fat</span>}
+            <br />
+            <span className="muted small">{p.reason.replace(/(-?\d+\.\d) kg/g, (_, kg) => `${toUnit(Number(kg), unit).toFixed(1)} ${unit}`)}</span>
+          </span>
+          <span className="row">
+            <button className="button small primary" onClick={() => resolve(p.id, true)}>
+              That's me
+            </button>
+            <button className="button small" onClick={() => resolve(p.id, false)}>
+              Not me
+            </button>
+          </span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** Weigh in on a Bluetooth scale (Android): find it, connect, step on, save. It listens only while
+ *  this is open. Weigh-ins the scale kept from while no phone was connected go to the
+ *  weigh-ins-to-check list, since anyone in the household may have taken them. */
 export function BluetoothWeighIn({
   profile,
   fields,
@@ -56,7 +106,10 @@ export function BluetoothWeighIn({
   const [phase, setPhase] = useState<"scan" | "pick" | "connecting" | "ready" | "done" | "closed">("scan");
   const [live, setLive] = useState<{ kg: number; stable: boolean } | null>(null);
   const [reading, setReading] = useState<InBodyScan | null>(null);
-  const [stored, setStored] = useState<InBodyScan[]>([]);
+  const [doubt, setDoubt] = useState<string | null>(null);
+  const [held, setHeld] = useState(0);
+  const slotKey = `scale_slot.${profile.id}`;
+  const [slot, setSlot] = useState<number | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -76,6 +129,7 @@ export function BluetoothWeighIn({
       });
   };
   useEffect(() => {
+    api.getSetting(slotKey).then((v) => setSlot(Number(v) || profile.bluetooth?.slot || 1));
     scan();
     return () => {
       if (timer.current) window.clearInterval(timer.current);
@@ -102,10 +156,12 @@ export function BluetoothWeighIn({
         if (p.error) setError(p.error);
         if (p.notes.length) setNotes((n) => [...n, ...p.notes]);
         if (p.live_weight_kg != null) setLive({ kg: p.live_weight_kg, stable: p.stable });
-        if (p.stored.length) setStored((s) => [...s, ...p.stored]);
+        if (p.held) setHeld((n) => n + p.held);
         if (p.readings.length) {
-          setReading(p.readings[p.readings.length - 1]);
+          const r = p.readings[p.readings.length - 1];
+          setReading(r);
           setPhase("done");
+          api.weighInDoubt(r.measured_at_local, r.values.weight_kg).then(setDoubt).catch(() => {});
         } else if (p.state === "ready") setPhase((x) => (x === "connecting" ? "ready" : x));
         else if (p.state === "closed") setPhase((x) => (x === "done" ? x : "closed"));
       } catch (e) {
@@ -120,16 +176,51 @@ export function BluetoothWeighIn({
     try {
       const r = await api.mergeBodyCompScans(scans);
       const added = r.inserted + r.merged;
-      onSaved(added ? `Saved ${added} weigh-in${added > 1 ? "s" : ""} from the ${profile.name} scale.` : "Already saved.");
+      onSaved(
+        (added ? `Saved your weigh-in from the ${profile.name} scale.` : "Already saved.") +
+          (held ? ` ${held} earlier weigh-in${held > 1 ? "s are" : " is"} waiting for you to check.` : ""),
+      );
     } catch (e) {
       setError(String(e));
     }
   }
 
+  const stop = () => {
+    if (timer.current) window.clearInterval(timer.current);
+    timer.current = null;
+    api.scaleBleDisconnect().catch(() => {});
+    onClose();
+  };
+
+  const chooseSlot = (n: number) => {
+    setSlot(n);
+    api.setSetting(slotKey, String(n));
+  };
+
   const shareLog = async () => saveOrShareText(`fitledger-${profile.id}-capture.txt`, "text/plain", await api.scaleBleLog());
 
   return (
     <Modal title={`Weigh in: ${profile.name}`} onClose={onClose} wide>
+      {(phase === "scan" || phase === "pick") && slot !== null && (
+        <label className="row small">
+          You are user
+          <select className="select inline" value={slot} onChange={(e) => chooseSlot(Number(e.target.value))}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          on this scale
+        </label>
+      )}
+      {(phase === "scan" || phase === "pick") && (
+        <p className="muted small">
+          Sharing the scale? Everyone picks a different number in FitLedger on their own phone, so the scale keeps your weigh-ins
+          apart. The scale works out body composition from your height, age and sex, so only weigh in while it's connected to your
+          own phone.
+        </p>
+      )}
       {phase === "scan" && <p className="small">Looking for the scale… step on it briefly to wake it up.</p>}
       {phase === "pick" && (
         <>
@@ -168,28 +259,27 @@ export function BluetoothWeighIn({
           <p className="success small">
             {formatDate(reading.measured_at_local)} {formatTime(reading.measured_at_local)}
           </p>
+          {doubt && (
+            <p className="warn small">
+              {doubt.replace(/(-?\d+\.\d) kg/g, (_, kg) => `${toUnit(Number(kg), unit).toFixed(1)} ${unit}`)}. Was this you?
+            </p>
+          )}
           <ValuesTable scan={reading} fields={fields} unit={unit} />
-          <button className="button primary" onClick={() => save([reading])}>
-            Save
-          </button>
+          <div className="row">
+            <button className="button primary" onClick={() => save([reading])}>
+              Save: that's me
+            </button>
+            <button className="button" onClick={stop}>
+              Not me
+            </button>
+          </div>
         </>
       )}
-      {stored.length > 0 && (
-        <details>
-          <summary className="section-label">
-            {stored.length} earlier weigh-in{stored.length > 1 ? "s" : ""} on the scale
-          </summary>
-          {stored.map((s, i) => (
-            <p key={i} className="small">
-              {formatDate(s.measured_at_local)} {formatTime(s.measured_at_local)} ·{" "}
-              {s.values.weight_kg != null && `${toUnit(s.values.weight_kg, unit).toFixed(1)} ${unit}`}
-              {s.values.pbf != null && ` · ${s.values.pbf}% fat`}
-            </p>
-          ))}
-          <button className="button" onClick={() => save(stored)}>
-            Save all {stored.length}
-          </button>
-        </details>
+      {held > 0 && (
+        <p className="small">
+          The scale also sent {held} weigh-in{held > 1 ? "s" : ""} it kept while no phone was connected. They wait under Measure for
+          you to say which are yours.
+        </p>
       )}
       {notes.map((n, i) => (
         <p key={i} className="warn small">
@@ -197,6 +287,14 @@ export function BluetoothWeighIn({
         </p>
       ))}
       {error && <p className="error">{error}</p>}
+      {phase !== "scan" && phase !== "pick" && (
+        <p className="row small muted">
+          FitLedger listens to the scale only while this window is open.
+          <button className="button small" onClick={stop}>
+            Stop listening
+          </button>
+        </p>
+      )}
       <p className="muted small">
         Not working? Share the capture log: it records every byte exchanged with the scale, so the profile's Bluetooth settings can be
         tuned (and replayed under Scale profiles).{" "}

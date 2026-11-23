@@ -15,7 +15,8 @@ usually needs only a profile, not code.
     "names": ["QN-Scale"],          // advertised names to look for
     "user_key": 8,                  // user key in the profile frame; some firmware wants 1000
     "algorithm": 4,                 // body-fat algorithm byte in the profile frame
-    "slot": 1,                      // user slot on the scale (1–8)
+    "slot": 1,                      // default user slot on the scale (1–8); each phone can pick
+                                    // its own in the weigh-in window, so a household shares a scale
     "scrambled": null,              // impedance bytes scrambled? null = work it out
     "result_ack": true,             // acknowledge the result block (stops the scale resending it)
     "stored_records": true          // also fetch weigh-ins the scale kept while nothing was connected

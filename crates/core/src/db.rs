@@ -367,6 +367,18 @@ ALTER TABLE inbody_scan ADD COLUMN imp_left_arm_100k_ohm REAL;
 ALTER TABLE inbody_scan ADD COLUMN imp_trunk_100k_ohm REAL;
 ALTER TABLE inbody_scan ADD COLUMN imp_right_leg_100k_ohm REAL;
 ALTER TABLE inbody_scan ADD COLUMN imp_left_leg_100k_ohm REAL;
+"#, r#"
+-- Migration 13: weigh-ins held for checking (a shared scale or health app may have weighed someone
+-- else). `scan` is the InBodyScan as JSON; rejected ones are kept so a re-sync doesn't offer them again.
+CREATE TABLE pending_weigh_in (
+    id                INTEGER PRIMARY KEY,
+    measured_at_local TEXT NOT NULL,
+    source            TEXT NOT NULL,
+    scan              TEXT NOT NULL,
+    reason            TEXT NOT NULL,
+    rejected          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (source, measured_at_local)
+);
 "#];
 
 pub(crate) const MIGRATION_COUNT: usize = MIGRATIONS.len();

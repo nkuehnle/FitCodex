@@ -20,6 +20,7 @@ export function TodayCard() {
   const [entry, setEntry] = useState("");
   const [days, setDays] = useState<DayHealth[]>([]);
   const [backupFailed, setBackupFailed] = useState(false);
+  const [toCheck, setToCheck] = useState(0);
   const [fatigue, setFatigue] = useState<FatigueReport | null>(null);
   const load = () => {
     api.dayHealth().then(setDays);
@@ -31,6 +32,7 @@ export function TodayCard() {
   useEffect(() => {
     load();
     loadWeighInPlan().then(setPlan);
+    api.pendingWeighIns().then((p) => setToCheck(p.length)).catch(() => {});
     Promise.all(["auto_backup", "last_auto_backup_error", "drive_backup", "last_drive_backup_error"].map(api.getSetting)).then(
       ([on, e, drive, driveError]) => setBackupFailed((on !== "off" && !!e) || (drive === "on" && !!driveError)),
     );
@@ -59,6 +61,11 @@ export function TodayCard() {
   const recovery = recoveryText(days, today());
   return (
     <section className="card today-card">
+      {toCheck > 0 && (
+        <a className="small warn" href="#/body/weight">
+          {toCheck} weigh-in{toCheck > 1 ? "s" : ""} from the scale to check ›
+        </a>
+      )}
       {backupFailed && (
         <a className="small warn" href="#/data">
           Automatic backup failed. Check it ›
