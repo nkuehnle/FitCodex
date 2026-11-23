@@ -34,8 +34,8 @@ const SEQ = [
   "#0d366b",
 ];
 
-/** Training load: white (little) → red (in the weekly target) → near-black (beyond what you can
- *  recover from). One hue with monotonically falling lightness, same in both themes. */
+/** Training load: white (little) → red (near the weekly minimum) → near-black (the target's
+ *  maximum, about the most you can recover from). One hue with monotonically falling lightness, same in both themes. */
 export const LOAD_RAMP: [number, string][] = [
   [0, "#fdecea"],
   [0.5, "#f4a08f"],

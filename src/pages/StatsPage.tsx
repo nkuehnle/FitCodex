@@ -118,7 +118,7 @@ function WeeksGrid({
   return (
     <div>
       <p className="muted small">
-        Sets per week for each muscle, against its weekly target. Dark cells are weeks of more work than you can likely recover from.
+        Sets per week for each muscle, against its weekly target. The darker a cell, the closer that week was to the most you can likely recover from.
       </p>
       <MuscleWeekGrid weekly={weekly} muscles={muscles.map((m) => m.id)} names={names} targets={targets} />
     </div>

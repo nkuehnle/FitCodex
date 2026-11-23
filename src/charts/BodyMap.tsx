@@ -164,13 +164,25 @@ const loadInterp = d3
   .interpolate(d3.interpolateLab)
   .clamp(true);
 
-/** Where a weekly set count sits against its target: 0–0.5 under the minimum, 0.5–0.8 inside the
- *  range, 0.8–1 above the maximum (1 = half again over it). */
+/** Where a weekly set count sits on the load ramp, against its target (lo–hi). With the default
+ *  10–20: red from 75% of the minimum (7.5), deeper red at 10–12, dark by 16, near-black at 20. */
 export function loadPosition(v: number, [lo, hi]: [number, number]): number {
   if (v <= 0) return 0;
-  if (v < lo) return 0.5 * (v / lo);
-  if (v <= hi) return 0.5 + 0.3 * (hi > lo ? (v - lo) / (hi - lo) : 1);
-  return 0.8 + 0.2 * Math.min(1, (v - hi) / (0.5 * hi || 1));
+  const span = hi - lo;
+  const stops: [number, number][] = [
+    [0, 0],
+    [0.75 * lo, 0.65],
+    [lo, 0.72],
+    [lo + 0.2 * span, 0.76],
+    [lo + 0.6 * span, 0.88],
+    [hi, 1],
+  ];
+  for (let i = 1; i < stops.length; i++) {
+    const [x0, t0] = stops[i - 1];
+    const [x1, t1] = stops[i];
+    if (v <= x1) return x1 > x0 ? t0 + ((t1 - t0) * (v - x0)) / (x1 - x0) : t1;
+  }
+  return 1;
 }
 export const loadColor = (t: number) => loadInterp(t);
 
@@ -207,16 +219,16 @@ export function HeatLegend({
   );
 }
 
-/** Legend for the target-relative scale (segments match loadPosition: 50% / 30% / 20%). */
+/** Legend for the target-relative scale (segments match loadPosition: under the minimum up to
+ *  72%, then the target range up to its maximum). */
 export function LoadLegend() {
-  const stops = [0.02, 0.25, 0.5, 0.65, 0.8, 0.9, 1].map((t) => `${loadColor(t)} ${t * 100}%`).join(",");
+  const stops = [0.02, 0.25, 0.5, 0.65, 0.72, 0.8, 0.9, 1].map((t) => `${loadColor(t)} ${t * 100}%`).join(",");
   return (
     <div className="load-legend small muted">
       <span className="load-ramp" style={{ background: `linear-gradient(to right, ${stops})` }} />
       <div className="load-labels">
         <span>under target</span>
         <span>in target</span>
-        <span>over</span>
       </div>
     </div>
   );
