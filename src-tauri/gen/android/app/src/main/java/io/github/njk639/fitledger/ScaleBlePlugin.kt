@@ -90,41 +90,54 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
         return true
     }
 
-    /** Finds scales: [{ address, name, rssi, manufacturer: hex }]. */
+    /** Finds scales: { devices: [{ address, name, rssi, manufacturer: hex, services }], others: [same] }.
+     *  A scale is a device with a QN service (FFF0/FFE0/AE00) or company id (0xFFFF/0x01A8) in its
+     *  advertisement, or one of `names`; `others` are the rest nearby, for the capture log and for
+     *  connecting by hand. */
     @Command
     fun scan(invoke: Invoke) {
         val a = invoke.parseArgs(ScanArgs::class.java)
         if (!ready(invoke)) return
         val scanner = adapter.bluetoothLeScanner ?: return invoke.reject("Bluetooth scanning isn't available")
         val found = linkedMapOf<String, JSObject>()
+        val others = linkedMapOf<String, JSObject>()
+        var failed: Int? = null
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, r: ScanResult) {
                 val name = r.scanRecord?.deviceName ?: r.device.name ?: ""
                 val uuids = r.scanRecord?.serviceUuids?.map { it.uuid } ?: emptyList()
-                val qn = uuids.any { it == SVC_FFF0 || it == SVC_FFE0 }
-                val wanted = if (a.names.isEmpty()) qn else qn || a.names.any { name.startsWith(it, ignoreCase = true) }
-                if (!wanted) return
                 val mfr = r.scanRecord?.manufacturerSpecificData
-                val bytes = if (mfr != null && mfr.size() > 0) {
-                    val id = mfr.keyAt(0)
-                    byteArrayOf((id and 0xff).toByte(), (id shr 8 and 0xff).toByte()) + mfr.valueAt(0)
+                val company = if (mfr != null && mfr.size() > 0) mfr.keyAt(0) else -1
+                val qn = uuids.any { it == SVC_FFF0 || it == SVC_FFE0 || it == SVC_AE00 } || company == 0xffff || company == 0x01a8
+                val wanted = qn || a.names.any { name.startsWith(it, ignoreCase = true) }
+                val bytes = if (company >= 0) {
+                    byteArrayOf((company and 0xff).toByte(), (company shr 8 and 0xff).toByte()) + mfr!!.valueAt(0)
                 } else ByteArray(0)
-                found[r.device.address] = JSObject().apply {
+                val o = JSObject().apply {
                     put("address", r.device.address)
                     put("name", name)
                     put("rssi", r.rssi)
                     put("manufacturer", hex(bytes))
+                    put("services", uuids.joinToString(" ") { u -> u.toString().let { if (it.endsWith(BASE_UUID)) it.substring(4, 8) else it } })
                 }
+                if (wanted) {
+                    found[r.device.address] = o
+                    others.remove(r.device.address)
+                } else if (r.device.address !in found) others[r.device.address] = o
             }
 
             override fun onScanFailed(errorCode: Int) {
-                error = "scan failed ($errorCode)"
+                failed = errorCode
             }
         }
         scanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
         main.postDelayed({
             scanner.stopScan(cb)
-            invoke.resolve(JSObject().apply { put("devices", JSArray().apply { found.values.forEach { put(it) } }) })
+            if (failed != null && found.isEmpty() && others.isEmpty()) return@postDelayed invoke.reject("Bluetooth scan failed ($failed); turn Bluetooth off and on, then try again")
+            invoke.resolve(JSObject().apply {
+                put("devices", JSArray().apply { found.values.forEach { put(it) } })
+                put("others", JSArray().apply { others.values.sortedByDescending { it.getInteger("rssi") ?: -200 }.forEach { put(it) } })
+            })
         }, a.timeoutMs.coerceIn(1000, 20000))
     }
 
@@ -228,7 +241,7 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
             main.post {
                 val (svc, notify, write) = listOf(Triple(SVC_FFF0, CHR_FFF1, CHR_FFF2), Triple(SVC_FFE0, CHR_FFE1, CHR_FFE3))
                     .firstOrNull { g.getService(it.first) != null } ?: run {
-                        error = "this doesn't look like a QN-Scale (no FFF0/FFE0 service)"
+                        error = "this doesn't look like a QN-Scale (no FFF0/FFE0 service; it has ${g.services.joinToString(" ") { it.uuid.toString().substring(4, 8) }})"
                         state = "closed"
                         return@post
                     }
@@ -291,7 +304,9 @@ class ScaleBlePlugin(private val activity: Activity) : Plugin(activity) {
         val SVC_FFE0: UUID = uuid16(0xffe0)
         val CHR_FFE1: UUID = uuid16(0xffe1)
         val CHR_FFE3: UUID = uuid16(0xffe3)
+        val SVC_AE00: UUID = uuid16(0xae00)
         val CCCD: UUID = uuid16(0x2902)
+        const val BASE_UUID = "-0000-1000-8000-00805f9b34fb"
 
         fun hex(b: ByteArray) = b.joinToString(" ") { String.format("%02x", it) }
         fun unhex(s: String): ByteArray {

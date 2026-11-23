@@ -886,6 +886,22 @@ function InBodyTab() {
     setCsv({ text, preview });
   }
 
+  /** A scale-app screenshot read with each home-scale profile's labels: the profile that finds the
+   *  most values, or null when none finds any. */
+  async function readAsScaleScreenshot(file: File) {
+    const data = await fileToBase64(file);
+    let best: { scan: InBodyScan; doubtful: string[] } | null = null;
+    for (const p of profiles.filter((p) => p.id !== "inbody" && Object.keys(p.labels).length > 0)) {
+      const r = await api.readBodyCompScreenshot(data, p.id, unit).catch(() => null);
+      if (!r || Object.keys(r.values).length <= Object.keys(best?.scan.values ?? {}).length) continue;
+      best = {
+        scan: { id: null, measured_at_local: r.measured_at ?? nowLocal(), values: r.values, device: p.name, notes: null, source: p.id },
+        doubtful: r.measured_at ? r.doubtful : [...r.doubtful, "date"],
+      };
+    }
+    return best;
+  }
+
   /** Vendor-app screenshots: read with the profile's labels, then checked in the scan form. */
   async function onScreenshots(files: FileList | null) {
     if (!files?.length || !profile) return;
@@ -953,7 +969,10 @@ function InBodyTab() {
           toCheck.push({ scan, doubtful: r.measured_at ? r.doubtful : [...r.doubtful, "date"] });
         }
       } catch (e) {
-        failed.push(`${file.name}: ${e}`);
+        // Not an InBody sheet: maybe a home scale's app screenshot.
+        const shot = await readAsScaleScreenshot(file);
+        if (shot) toCheck.push(shot);
+        else failed.push(`${file.name}: ${e}`);
       }
     }
     setReading(null);
@@ -1130,6 +1149,7 @@ function InBodyTab() {
           fields={fields}
           unit={unit}
           flagged={flagged}
+          known={Object.keys(profiles.find((p) => p.id === editing.source && p.id !== "inbody")?.labels ?? {})}
           onClose={nextReview}
           onSaved={() => {
             load();
@@ -1299,6 +1319,7 @@ function ScanForm({
   fields,
   unit,
   flagged = [],
+  known = [],
   onClose,
   onSaved,
 }: {
@@ -1307,6 +1328,9 @@ function ScanForm({
   unit: "kg" | "lb";
   /** Fields read from an image that need checking (highlighted). */
   flagged?: string[];
+  /** Fields the scale's app shows (its profile's labels): only these are open; the rest come from
+   *  Bluetooth or other devices. */
+  known?: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1356,6 +1380,15 @@ function ScanForm({
     ["Raw impedance", isImp],
   ];
   const homeScale = (scan.source ?? "inbody") !== "inbody";
+  // A home scale's app shows a few fields: those first, the rest folded away.
+  const appShows = (f: InBodyField) => known.includes(f.column) || scan.values[f.column] != null;
+  const shown: [string, (f: InBodyField) => boolean][] =
+    homeScale && known.length
+      ? [
+          [`Shown in the ${scan.device ?? "scale"} app`, appShows],
+          ...groups.map(([t, pred]): [string, (f: InBodyField) => boolean] => [`More: ${t.toLowerCase()} (Bluetooth or other devices)`, (f) => pred(f) && !appShows(f)]),
+        ]
+      : groups;
 
   async function save() {
     const values: Record<string, number> = {};
@@ -1400,14 +1433,16 @@ function ScanForm({
             saving.
           </p>
         ) : (
-          <p className="muted small">Every field is optional; fill in what's on your result sheet.</p>
+          <p className="muted small">
+            Every field is optional; fill in what's on your {homeScale ? "scale's app" : "result sheet"}.
+          </p>
         )}
-        {groups.map(([title, pred]) => (
+        {shown.filter(([, pred]) => fields.some(pred)).map(([title, pred], i) => (
           <details
             key={title}
             open={
-              title === "Body composition" ||
-              (title === "Home scale" && homeScale) ||
+              (shown === groups ? title === "Body composition" : i === 0) ||
+              (shown === groups && title === "Home scale" && homeScale) ||
               fields.some((f) => pred(f) && (flagged.includes(f.column) || vals[f.column]))
             }
           >

@@ -3,7 +3,7 @@
 //! nearest number straight above or below. Which labels mean which field comes from the caller (the
 //! scale profile), so a new app needs only its labels.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use ocrs::{DecodeMethod, ImageSource, OcrEngine, OcrEngineParams, TextItem};
 use rten_tensor::prelude::*;
@@ -93,7 +93,7 @@ fn plausible(kind: &str, v: f64, unit: Option<&str>) -> bool {
             let kg = if unit == Some("lb") { v * 0.453_592_37 } else { v };
             (0.1..=400.0).contains(&kg) && unit != Some("%")
         }
-        "pct" => (0.1..=95.0).contains(&v),
+        "pct" => (0.1..=95.0).contains(&v) && !matches!(unit, Some("lb" | "kg" | "kcal")),
         "kcal" => (400.0..=6000.0).contains(&v),
         "l" => (5.0..=120.0).contains(&v),
         "level" => (1.0..=60.0).contains(&v),
@@ -125,7 +125,8 @@ fn rows(words: &[Word]) -> Vec<Vec<usize>> {
 }
 
 struct Found {
-    field: usize,
+    /// Fields going by this label, in spec order (an app may print a mass or a % under one name).
+    fields: Vec<usize>,
     /// Word indices of the label, in order.
     words: Vec<usize>,
 }
@@ -148,14 +149,15 @@ pub fn match_labels(words: &[Word], specs: &[LabelSpec]) -> LabeledRead {
     let mut used: HashSet<usize> = HashSet::new();
     let mut found: Vec<Found> = Vec::new();
     for row in &rows {
-        for (field, label) in &labels {
+        for (_, label) in &labels {
             let n = label.len();
             let mut start = 0;
             while start + n <= row.len() {
                 let span = &row[start..start + n];
                 if span.iter().zip(label).all(|(&i, l)| normed[i] == *l) && span.iter().all(|i| !used.contains(i)) {
                     used.extend(span.iter().copied());
-                    found.push(Found { field: *field, words: span.to_vec() });
+                    let fields = labels.iter().filter(|(_, l)| l == label).map(|(f, _)| *f).collect::<BTreeSet<_>>().into_iter().collect();
+                    found.push(Found { fields, words: span.to_vec() });
                     start += n;
                 } else {
                     start += 1;
@@ -184,22 +186,18 @@ pub fn match_labels(words: &[Word], specs: &[LabelSpec]) -> LabeledRead {
         Some((v, unit))
     };
 
-    for f in &found {
-        let spec = &specs[f.field];
-        if out.values.contains_key(&spec.field) {
-            continue;
-        }
+    let value_for = |f: &Found, spec: &LabelSpec, taken: &HashSet<usize>| -> Option<(usize, f64, Option<&'static str>)> {
         let row = &rows[row_of[&f.words[0]]];
         let last = *f.words.last().unwrap();
         let after = row.iter().position(|&j| j == last).unwrap() + 1;
-        let ok = |i: usize, taken: &HashSet<usize>| -> Option<(f64, Option<&'static str>)> {
+        let ok = |i: usize| -> Option<(f64, Option<&'static str>)> {
             if taken.contains(&i) || label_words.contains(&i) {
                 return None;
             }
             value_at(i).filter(|(v, u)| plausible(&spec.kind, *v, *u))
         };
         // Same row, after the label and before the next label.
-        let mut pick = row[after..].iter().take_while(|j| !label_words.contains(j)).find_map(|&i| ok(i, &taken).map(|v| (i, v)));
+        let mut pick = row[after..].iter().take_while(|j| !label_words.contains(j)).find_map(|&i| ok(i).map(|v| (i, v)));
         // Else the nearest number in the label's column, above or below.
         if pick.is_none() {
             let (lx0, lx1) = (words[f.words[0]].x0, words[last].x1);
@@ -215,14 +213,44 @@ pub fn match_labels(words: &[Word], specs: &[LabelSpec]) -> LabeledRead {
                     let gap = if words[i].y1 <= ly0 { ly0 - words[i].y1 } else { words[i].y0 - ly1 };
                     (gap >= -h * 0.25 && gap <= h * 4.0).then_some((gap.max(0.0), words[i].y1 <= ly0, i))
                 })
-                .filter_map(|(gap, above, i)| ok(i, &taken).map(|v| (gap, above, i, v)))
+                .filter_map(|(gap, above, i)| ok(i).map(|v| (gap, above, i, v)))
                 .min_by(|a, b| a.0.total_cmp(&b.0).then(b.1.cmp(&a.1)))
                 .map(|(_, _, i, v)| (i, v));
         }
-        if let Some((i, (v, unit))) = pick {
-            taken.insert(i);
-            out.values.insert(spec.field.clone(), v);
-            if spec.kind == "kg" {
+        pick.map(|(i, (v, u))| (i, v, u))
+    };
+
+    for f in &found {
+        for &field in &f.fields {
+            let spec = &specs[field];
+            if out.values.contains_key(&spec.field) {
+                continue;
+            }
+            if let Some((i, v, unit)) = value_for(f, spec, &taken) {
+                taken.insert(i);
+                out.values.insert(spec.field.clone(), v);
+                if spec.kind == "kg" {
+                    if let Some(u @ ("lb" | "kg")) = unit {
+                        out.units.insert(spec.field.clone(), u.to_string());
+                    }
+                }
+                break;
+            }
+        }
+    }
+    // The weight is often the headline with its label far above it (or none): the largest
+    // plausible number on screen.
+    if let Some(spec) = specs.iter().find(|s| s.field == "weight_kg" && !out.values.contains_key("weight_kg")) {
+        let biggest = (0..words.len())
+            .filter(|i| !taken.contains(i) && !label_words.contains(i))
+            .filter_map(|i| value_at(i).filter(|(v, u)| *v >= 20.0 && plausible(&spec.kind, *v, *u)).map(|v| (i, v)))
+            .max_by(|a, b| (words[a.0].y1 - words[a.0].y0).total_cmp(&(words[b.0].y1 - words[b.0].y0)));
+        if let Some((i, (v, unit))) = biggest {
+            // Only a clear headline: much taller than the labels.
+            let label_h = label_words.iter().map(|&j| words[j].y1 - words[j].y0).fold(0.0, f32::max);
+            if words[i].y1 - words[i].y0 > label_h * 1.5 {
+                out.values.insert(spec.field.clone(), v);
+                let unit = unit.or_else(|| unit_near(words, i));
                 if let Some(u @ ("lb" | "kg")) = unit {
                     out.units.insert(spec.field.clone(), u.to_string());
                 }
@@ -231,6 +259,19 @@ pub fn match_labels(words: &[Word], specs: &[LabelSpec]) -> LabeledRead {
     }
     out.measured_at = find_datetime(&out.text.join(" "));
     out
+}
+
+/// A unit printed in its own word just right of or below word `i` ("182" then a small "lb").
+fn unit_near(words: &[Word], i: usize) -> Option<&'static str> {
+    let w = &words[i];
+    let h = w.y1 - w.y0;
+    words
+        .iter()
+        .filter(|o| o.x0 >= w.x1 - h * 0.2 && o.x0 <= w.x1 + h && o.y0 < w.y1 + h * 0.2 && o.y1 > w.y0)
+        .find_map(|o| match unit_of(&o.text.to_ascii_lowercase()) {
+            Some(u @ ("lb" | "kg")) if o.text.len() <= 3 => Some(u),
+            _ => None,
+        })
 }
 
 /// A date (and time) in the text: 2025-04-24, 2025/04/24, 04/24/2025 (US order unless the first part
@@ -331,6 +372,24 @@ mod tests {
                 w
             })
             .collect()
+    }
+
+    #[test]
+    fn headline_weight_and_a_mass_named_like_a_percent() {
+        let mut words = line(200.0, 10.0, "Weight");
+        // The headline: big, far below its title, its "lb" small and to the right.
+        words.push(Word { text: "182".into(), x0: 150.0, y0: 300.0, x1: 330.0, y1: 380.0 });
+        words.push(Word { text: "lb".into(), x0: 340.0, y0: 350.0, x1: 370.0, y1: 372.0 });
+        words.extend(line(20.0, 500.0, "Skeletal Muscle 83.8 lb"));
+        let specs = [
+            spec("weight_kg", "kg", &["Weight"]),
+            spec("skeletal_muscle_pct", "pct", &["Skeletal Muscle"]),
+            spec("smm_kg", "kg", &["Skeletal Muscle"]),
+        ];
+        let r = match_labels(&words, &specs);
+        assert_eq!((r.values["weight_kg"], r.units["weight_kg"].as_str()), (182.0, "lb"));
+        assert_eq!((r.values["smm_kg"], r.units["smm_kg"].as_str()), (83.8, "lb"));
+        assert!(!r.values.contains_key("skeletal_muscle_pct"));
     }
 
     #[test]

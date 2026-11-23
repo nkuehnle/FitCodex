@@ -149,6 +149,7 @@ export function BluetoothWeighIn({
   onSaved: (msg: string) => void;
 }) {
   const [devices, setDevices] = useState<ScaleDevice[] | null>(null);
+  const [others, setOthers] = useState<ScaleDevice[]>([]);
   const [phase, setPhase] = useState<"scan" | "pick" | "connecting" | "ready" | "done" | "closed">("scan");
   const [live, setLive] = useState<{ kg: number; stable: boolean } | null>(null);
   const [reading, setReading] = useState<InBodyScan | null>(null);
@@ -167,6 +168,7 @@ export function BluetoothWeighIn({
       .scaleBleScan(profile.id)
       .then((r) => {
         setDevices(r.devices);
+        setOthers(r.others ?? []);
         setPhase("pick");
       })
       .catch((e) => {
@@ -243,7 +245,15 @@ export function BluetoothWeighIn({
     api.setSetting(slotKey, String(n));
   };
 
-  const shareLog = async () => saveOrShareText(`fitledger-${profile.id}-capture.txt`, "text/plain", await api.scaleBleLog());
+  const shareLog = async () => {
+    try {
+      const log = await api.scaleBleLog();
+      if (!log) return setError("Nothing captured yet: search for the scale first.");
+      await saveOrShareText(`fitledger-${profile.id}-capture.txt`, "text/plain", log);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   return (
     <Modal title={`Weigh in: ${profile.name}`} onClose={onClose} wide>
@@ -275,7 +285,11 @@ export function BluetoothWeighIn({
                 Set the scale up once in the {profile.name} app, with you as its first user and the same birth date, height and sex
                 as in FitLedger. That registers you on the scale.
               </li>
-              <li>Close the {profile.name} app (swipe it away): the scale talks to one app at a time. No pairing in Android's Bluetooth settings is needed.</li>
+              <li>
+                Close the {profile.name} app: the scale talks to one app at a time, and the app can keep syncing in the background,
+                so if the scale isn't found, force stop it (long-press its icon › App info › Force stop). No pairing in Android's
+                Bluetooth settings is needed.
+              </li>
               <li>Step on barefoot to wake the scale, pick it in the list, and stay on until body composition finishes (about 15 s after the weight settles).</li>
               <li>
                 Only your weight comes through? Under Scale profiles, edit a copy of {profile.name} and try "user_key": 8 instead of
@@ -298,7 +312,24 @@ export function BluetoothWeighIn({
               </div>
             ))
           ) : (
-            <p className="small">No scale found. Wake it (step on), close the vendor app, then search again.</p>
+            <p className="small">
+              No scale found. Step on it to wake it (it shows a weight), force stop the {profile.name} app, then search again while
+              standing on it.
+            </p>
+          )}
+          {others.length > 0 && (
+            <details className="small">
+              <summary>Other Bluetooth devices nearby ({others.length})</summary>
+              <p className="muted">If your scale is one of these (it appears only while awake), connect to it here.</p>
+              {others.map((d) => (
+                <div key={d.address} className="start-row" onClick={() => connect(d)}>
+                  <span>
+                    {d.name || "Unnamed"} <span className="muted">{d.address}</span>
+                  </span>
+                  <span className="muted">Connect ›</span>
+                </div>
+              ))}
+            </details>
           )}
           <button className="button" onClick={scan}>
             Search again

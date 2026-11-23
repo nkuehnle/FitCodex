@@ -264,6 +264,10 @@ impl QnSession {
         }
     }
 
+    pub fn config(&self) -> &QnConfig {
+        &self.cfg
+    }
+
     fn unit_flag(&self) -> u8 {
         if self.cfg.unit_lb { 0x02 } else { 0x01 }
     }

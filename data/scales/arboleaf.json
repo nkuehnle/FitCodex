@@ -22,6 +22,7 @@
     "fat_free_mass_kg": ["Fat-free Body Weight", "Fat-free Mass", "Fat Free Mass", "Lean Body Mass"],
     "muscle_mass_kg": ["Muscle Mass"],
     "skeletal_muscle_pct": ["Skeletal Muscle", "Skeletal Muscle Rate"],
+    "smm_kg": ["Skeletal Muscle", "Skeletal Muscle Mass"],
     "body_water_pct": ["Body Water", "Water"],
     "protein_pct": ["Protein"],
     "bone_mass_kg": ["Bone Mass"],

@@ -633,6 +633,8 @@ export interface ScaleDevice {
   name: string;
   rssi: number;
   manufacturer: string;
+  /** Advertised services (16-bit ones as 4 hex digits). */
+  services?: string;
 }
 
 export interface ScalePump {
@@ -1008,7 +1010,7 @@ export const api = {
       "read_body_comp_screenshot",
       { data, profile, massUnit },
     ),
-  scaleBleScan: (profile: string) => invoke<{ devices: ScaleDevice[] }>("scale_ble_scan", { profile }),
+  scaleBleScan: (profile: string) => invoke<{ devices: ScaleDevice[]; others?: ScaleDevice[] }>("scale_ble_scan", { profile }),
   scaleBleConnect: (profile: string, address: string, massUnit: "kg" | "lb") =>
     invoke<void>("scale_ble_connect", { profile, address, massUnit }),
   scaleBlePump: () => invoke<ScalePump>("scale_ble_pump"),

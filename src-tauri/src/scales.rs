@@ -176,7 +176,7 @@ pub async fn read_body_comp_screenshot(app: tauri::AppHandle, state: State<'_, A
                 mass_unit.as_str()
             });
             let kg = if unit == "lb" { v * LB } else { v };
-            (k, (kg * 100.0).round() / 100.0)
+            (k, (kg * 1000.0).round() / 1000.0)
         })
         .collect();
     Ok(ScreenshotRead { measured_at: r.measured_at, values, doubtful, text: r.text })
@@ -192,8 +192,9 @@ struct BleSession {
     idle_done: bool,
 }
 
+/// The current or last session, and what the last scan saw (the start of the capture log).
 #[derive(Default)]
-pub struct ScaleBle(Mutex<Option<BleSession>>);
+pub struct ScaleBle(Mutex<Option<BleSession>>, Mutex<Vec<String>>);
 
 #[cfg(target_os = "android")]
 pub struct ScaleBleHandle(pub tauri::plugin::PluginHandle<tauri::Wry>);
@@ -251,19 +252,45 @@ fn session_for(db: &Db, profile: &str, unit_lb: bool) -> fitledger_core::Result<
     Ok((QnSession::new(QnConfig { bluetooth, unit_lb, female: p.female, age, height_cm }), profile))
 }
 
-/// Finds scales nearby for a profile: [{ address, name, rssi, manufacturer }].
+/// Finds scales nearby for a profile: { devices: [...], others: [...] } (see the Android plugin),
+/// keeping what it saw for the capture log.
 #[tauri::command]
-pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, profile: String) -> CmdResult<serde_json::Value> {
+pub async fn scale_ble_scan(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String) -> CmdResult<serde_json::Value> {
     let names = with(&state, |db| db.scale_profile(&profile))?.bluetooth.map(|b| b.names).unwrap_or_default();
-    ble_call(&app, "scan", serde_json::json!({ "names": names, "timeoutMs": 6000 })).await
+    let r = ble_call(&app, "scan", serde_json::json!({ "names": names, "timeoutMs": 10000 })).await;
+    let mut log = vec![format!("# FitLedger scale scan: profile {profile}, {}", Local::now().format(TIME_FMT))];
+    match &r {
+        Ok(v) => {
+            for (kind, key) in [("scale", "devices"), ("other", "others")] {
+                for d in v[key].as_array().into_iter().flatten() {
+                    log.push(format!(
+                        "# {kind}: {} \"{}\" rssi {} services [{}] manufacturer [{}]",
+                        d["address"].as_str().unwrap_or(""),
+                        d["name"].as_str().unwrap_or(""),
+                        d["rssi"],
+                        d["services"].as_str().unwrap_or(""),
+                        d["manufacturer"].as_str().unwrap_or("")
+                    ));
+                }
+            }
+            if log.len() == 1 {
+                log.push("# nothing found nearby".into());
+            }
+        }
+        Err(e) => log.push(format!("# scan failed: {e}")),
+    }
+    *ble.1.lock().map_err(|e| e.to_string())? = log;
+    r
 }
 
 #[tauri::command]
 pub async fn scale_ble_connect(app: tauri::AppHandle, state: State<'_, AppState>, ble: State<'_, ScaleBle>, profile: String, address: String, mass_unit: String) -> CmdResult<()> {
     let (qn, profile) = with(&state, |db| session_for(db, &profile, mass_unit == "lb"))?;
+    let bt = &qn.config().bluetooth;
+    let head = format!("# FitLedger scale capture: profile {}, {}, {address}, user {} key {}", profile.id, Local::now().format(TIME_FMT), bt.slot, bt.user_key);
     *ble.0.lock().map_err(|e| e.to_string())? = Some(BleSession {
         qn,
-        log: vec![format!("# FitLedger scale capture: profile {}, {}", profile.id, Local::now().format(TIME_FMT))],
+        log: vec![head],
         profile,
         last_rx: Instant::now(),
         idle_done: false,
@@ -316,6 +343,10 @@ pub async fn scale_ble_pump(app: tauri::AppHandle, state: State<'_, AppState>, b
     let writes = {
         let mut guard = ble.0.lock().map_err(|e| e.to_string())?;
         let Some(s) = guard.as_mut() else { return Ok(out) };
+        let seen = format!("# state: {}{}", out.state, out.error.as_deref().map(|e| format!(", {e}")).unwrap_or_default());
+        if s.log.iter().rev().find(|l| l.starts_with("# state: ")) != Some(&seen) {
+            s.log.push(seen);
+        }
         let mut writes = Vec::new();
         let mut steps = Vec::new();
         for line in polled["notifications"].as_array().into_iter().flatten().filter_map(|l| l.as_str()) {
@@ -373,7 +404,9 @@ pub async fn scale_ble_disconnect(app: tauri::AppHandle) -> CmdResult<()> {
 /// The capture log of the current or last session (every frame in and out, with times).
 #[tauri::command]
 pub fn scale_ble_log(ble: State<ScaleBle>) -> CmdResult<String> {
-    Ok(ble.0.lock().map_err(|e| e.to_string())?.as_ref().map(|s| s.log.join("\n")).unwrap_or_default())
+    let mut log = ble.1.lock().map_err(|e| e.to_string())?.clone();
+    log.extend(ble.0.lock().map_err(|e| e.to_string())?.iter().flat_map(|s| s.log.iter().cloned()));
+    Ok(log.join("\n"))
 }
 
 /// Replays a capture log (or plain hex frames, one per line) through a profile's decoder, on any
