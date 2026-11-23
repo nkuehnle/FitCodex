@@ -147,8 +147,8 @@ calories).
 
 ### Charts
 
-- **Raw or Trend** (LOESS smoothing). Your choice and the amount of smoothing are remembered. Raw
-  shows every data point.
+- **Raw or Trend** (LOESS smoothing), remembered for each chart. Weight and calories share one
+  setting since they're one panel. Raw shows every data point.
 - **Goal pace** on the bodyweight chart: where your weight would be at the goal's target rate.
 - **Compare phases:** every cut, gain or maintenance from its own first day, on one chart, and how
   much of a phase's weight change was lean and how much fat.
@@ -157,7 +157,8 @@ calories).
 
 ### Sharing
 
-- **Share any chart, workout, exercise or body map as an image:** square (1080×1080) or story
+- **Share any chart, workout, exercise or body map as an image** (a "How you compare" card shares
+  all its comparisons on one image, and you pick which): square (1080×1080) or story
   (1080×1920), dark or light, with an option to hide exact numbers.
 - **Save to Photos** or use the Android share sheet (Instagram Stories, Discord, Messages, …).
 

@@ -1,8 +1,62 @@
-import { useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type NormReference, type NormWho } from "../api";
 import { usePrefs } from "../App";
+import type { ChartTheme } from "../charts/theme";
 import { parseLocal, toUnit } from "../format";
-import { ShareButton } from "../share/ShareDialog";
+import { ShareButton, type StandingItem } from "../share/ShareDialog";
+
+/** Collects the strips inside one "How you compare" card, so the card shares them together. */
+interface CompareShareGroup {
+  items: Map<string, StandingItem>;
+  add: (id: string) => void;
+  remove: (id: string) => void;
+}
+const ShareGroup = createContext<CompareShareGroup | null>(null);
+const ShareIds = createContext<string[]>([]);
+
+export function CompareShareProvider({ children }: { children: ReactNode }) {
+  const items = useRef(new Map<string, StandingItem>()).current;
+  const [ids, setIds] = useState<string[]>([]);
+  const add = useCallback((id: string) => setIds((x) => (x.includes(id) ? x : [...x, id])), []);
+  const remove = useCallback((id: string) => setIds((x) => x.filter((i) => i !== id)), []);
+  const group = useMemo(() => ({ items, add, remove }), [items, add, remove]);
+  return (
+    <ShareGroup.Provider value={group}>
+      <ShareIds.Provider value={ids}>{children}</ShareIds.Provider>
+    </ShareGroup.Provider>
+  );
+}
+
+/** Shares every comparison in the card on one image; the dialog lets you untick any. */
+export function CompareShareButton({ title = "How I compare" }: { title?: string }) {
+  const group = useContext(ShareGroup);
+  const ids = useContext(ShareIds);
+  if (!group || !ids.length) return null;
+  return (
+    <ShareButton
+      icon
+      kind="standings"
+      title={title}
+      getItems={() => ids.map((i) => group.items.get(i)).filter((x): x is StandingItem => !!x)}
+    />
+  );
+}
+
+/** A "How you compare" card: title with one share button for all its comparisons, then "Compare with". */
+export function CompareCard({ children }: { children: ReactNode }) {
+  return (
+    <CompareShareProvider>
+      <section className="card">
+        <div className="title-row">
+          <h2 className="section-title">How you compare</h2>
+          <CompareShareButton />
+        </div>
+        <CompareWith />
+        {children}
+      </section>
+    </CompareShareProvider>
+  );
+}
 
 /** Profile settings used for comparisons: `who` is null until sex and birth year are set. */
 export function useNormProfile(bodyweightKg: number | null = null): { who: NormWho | null; heightCm: number | null; loaded: boolean } {
@@ -153,7 +207,18 @@ export function Standing({ metric, who, ...props }: StandingProps & { metric: st
  */
 export function StandingView({ reference: ref, label, values, show, note }: StandingProps & { reference: NormReference }) {
   const [open, setOpen] = useState(false);
-  if (!values.length) return null;
+  const group = useContext(ShareGroup);
+  const id = useId();
+  const has = values.length > 0;
+  useEffect(() => {
+    if (!group || !has) return;
+    group.add(id);
+    return () => {
+      group.remove(id);
+      group.items.delete(id);
+    };
+  }, [group, id, has]);
+  if (!has) return null;
 
   const latest = values[values.length - 1];
   const first = values.length > 1 ? values[0] : null;
@@ -207,8 +272,20 @@ export function StandingView({ reference: ref, label, values, show, note }: Stan
         .map(([p, v]) => ({ v, top: p === 50 ? "median" : ordinal(p), bottom: show(v) }));
 
   // Colors as CSS variables on screen, or a chart theme's hex values for a share image.
-  const draw = (c: StripColors, hide = false) => (
-        <svg className="standing-strip" viewBox={`0 0 ${W} 46`} role="img" aria-label={`${label}: ${show(latest)}, ${rankText}`}>
+  // `head` (share images): the label and standing written above the strip.
+  const draw = (c: StripColors, hide = false, head?: [string, string]) => (
+        <svg className="standing-strip" viewBox={`0 0 ${W} ${head ? 80 : 46}`} role="img" aria-label={`${label}: ${show(latest)}, ${rankText}`}>
+          {head && (
+            <>
+              <text x={6} y={12} fontSize={11} fontWeight={600} fill={c.text}>
+                {head[0]}
+              </text>
+              <text x={6} y={27} fontSize={10} fill={c.muted}>
+                {head[1]}
+              </text>
+            </>
+          )}
+          <g transform={head ? "translate(0 34)" : undefined}>
           <rect x={6} y={bar.y} width={W - 12} height={bar.h} rx={bar.h / 2} fill={c.track} />
           {segments.map((s, i) => (
             <rect
@@ -253,18 +330,30 @@ export function StandingView({ reference: ref, label, values, show, note }: Stan
             </>
           )}
           <circle cx={x(latest)} cy={mid} r={6.5} fill={c.accent} stroke={c.surface} strokeWidth={2} />
+          </g>
         </svg>
   );
-  const share = (
+  const standing = tier != null ? `${tiers[tier][0]} · ${rankText}` : rankText;
+  const themed = (t: ChartTheme): StripColors => ({ track: t.grid, accent: t.line, muted: t.muted, text: t.text, surface: t.surface });
+  // In a card that shares all its comparisons together, hand this one over instead of its own button.
+  if (group)
+    group.items.set(id, {
+      label,
+      population: ref.population,
+      render: (t, hide) =>
+        draw(themed(t), hide, [
+          hide ? label.replace(/[\d.,]+\s*(lb|kg|cm|in|reps)\b/g, "•••") : label,
+          `${standing}${hide ? "" : ` · you: ${show(latest)}`}`,
+        ]),
+    });
+  const share = group ? null : (
     <ShareButton
       icon
       kind="visual"
       title={label}
-      subtitle={tier != null ? `${tiers[tier][0]} · ${rankText}` : rankText}
+      subtitle={standing}
       lines={[`vs ${ref.population}`]}
-      render={(theme, _w, _h, hide) =>
-        draw({ track: theme.grid, accent: theme.line, muted: theme.muted, text: theme.text, surface: theme.surface }, hide)
-      }
+      render={(theme, _w, _h, hide) => draw(themed(theme), hide)}
     />
   );
 
@@ -426,7 +515,10 @@ export function WorkoutLifts({
       ) : bw == null ? (
         <p className="muted small">Log your bodyweight to see strength comparisons.</p>
       ) : (
-        <>
+        <CompareShareProvider>
+          <div className="row small" style={{ justifyContent: "flex-end" }}>
+            <CompareShareButton title="How my lifts compare" />
+          </div>
           {rows.map((r) => (
             <ExerciseComparisons
               key={r.id}
@@ -441,7 +533,7 @@ export function WorkoutLifts({
             />
           ))}
           <p className="muted small">Tap ⓘ for who each comparison is with and how variations are converted.</p>
-        </>
+        </CompareShareProvider>
       )}
     </details>
   );

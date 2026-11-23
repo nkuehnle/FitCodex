@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api, type ExerciseStats, type InBodyScan, type Muscle, type WeighInRow, type WorkoutDetail } from "../api";
 import { usePrefs } from "../App";
@@ -28,8 +28,18 @@ export type ShareKind =
   | { kind: "count" }
   /** Any time-series chart, as it's shown (series, smoothing, phases). */
   | { kind: "chart"; title: string; chart: TimeSeriesProps & { smooth: { on: boolean; span: number } } }
+  /** Several "How you compare" strips on one card; the dialog lets you untick any. `getItems`
+   *  is read when the dialog opens, so it sees every strip that has rendered. */
+  | { kind: "standings"; title: string; getItems: () => StandingItem[] }
   /** Any other chart: `render` draws it as SVG in the card's theme and size. */
   | { kind: "visual"; title: string; subtitle?: string; lines?: string[]; render: NonNullable<CardContent["visual"]> };
+
+/** One comparison strip for a "standings" share: drawn as SVG with its own heading. */
+export interface StandingItem {
+  label: string;
+  population: string;
+  render: (theme: ChartTheme, hide: boolean) => ReactNode;
+}
 
 /** "Share" button; `icon` draws a compact share glyph instead (chart toolbars). */
 export function ShareButton(props: ShareKind & { icon?: boolean }) {
@@ -101,6 +111,9 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
   const [content, setContent] = useState<CardContent | null>(null);
   /** Which of the bodyweight panel's charts go in the image. */
   const [parts, setParts] = useState<Parts>("both");
+  /** Strips left out of a "standings" card (by label). */
+  const [skip, setSkip] = useState<string[]>([]);
+  const [choices] = useState(() => (spec.kind === "standings" ? spec.getItems().map((i) => i.label) : []));
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [png, setPng] = useState<string | null>(null);
@@ -110,7 +123,7 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
   const H = size === "square" ? 1080 : 1920;
 
   useEffect(() => {
-    buildContent(spec, unit, parts)
+    buildContent(spec, unit, parts, skip)
       .then((c) => {
         setContent(c);
         setTitle(c.title);
@@ -118,7 +131,7 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
       })
       .catch((e) => setMsg(`Couldn't load the card: ${e}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parts]);
+  }, [parts, skip]);
 
   // Layout: header (title, subtitle, stats, lines) then the visual fills the rest.
   const statsH = content?.stats.length ? 150 : 0;
@@ -133,7 +146,8 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
     setPng(null);
     // Wait for the off-screen visual to render, then compose and rasterize.
     const t = setTimeout(async () => {
-      const svgs = stage.current ? Array.from(stage.current.querySelectorAll("svg")) : [];
+      // Top-level only: a visual's own nested <svg> is drawn with its parent.
+      const svgs = stage.current ? Array.from(stage.current.querySelectorAll("svg")).filter((s) => !s.parentElement?.closest("svg")) : [];
       const svg = composeSvg({ theme, H, title, subtitle, content, hide, visuals: svgs, top, visualW, visualH });
       try {
         setPng(await rasterize(svg, W, H));
@@ -227,6 +241,22 @@ function ShareDialog({ spec, onClose }: { spec: ShareKind; onClose: () => void }
                 <button key={k} className={parts === k ? "active" : ""} onClick={() => setParts(k)}>
                   {label}
                 </button>
+              ))}
+            </div>
+          )}
+          {choices.length > 1 && (
+            <div className="share-picks">
+              {choices.map((c) => (
+                <label key={c} className="check small">
+                  <input
+                    type="checkbox"
+                    checked={!skip.includes(c)}
+                    // At least one stays in.
+                    disabled={!skip.includes(c) && skip.length === choices.length - 1}
+                    onChange={(e) => setSkip(e.target.checked ? skip.filter((x) => x !== c) : [...skip, c])}
+                  />
+                  {c}
+                </label>
               ))}
             </div>
           )}
@@ -350,15 +380,21 @@ function composeSvg(o: {
       `<text x="${PAD}" y="${y}" font-size="30" fill="${theme.text}" font-family="${font}">${esc(fit(o.hide ? l.replace(/[\d.,]+\s*(lb|kg)/g, "•••") : l, 30))}</text>`,
     );
   });
-  // Inline the rendered visual(s), stacked.
-  let vy = o.top;
-  for (const svg of o.visuals) {
+  // Inline the rendered visual(s), stacked, shrunk together if they'd overflow.
+  const boxes = o.visuals.map((svg) => {
     const vb = svg.getAttribute("viewBox") ?? `0 0 ${svg.getAttribute("width")} ${svg.getAttribute("height")}`;
     const [, , vw, vh] = vb.split(/\s+/).map(Number);
-    const h = Math.min(o.visualH - (vy - o.top), (o.visualW / vw) * vh);
+    return { svg, vb, h: (o.visualW / vw) * vh };
+  });
+  const gaps = 16 * Math.max(0, boxes.length - 1);
+  const natural = boxes.reduce((n, b) => n + b.h, 0);
+  const scale = natural > 0 ? Math.min(1, (o.visualH - gaps) / natural) : 1;
+  let vy = o.top;
+  for (const b of boxes) {
+    const h = b.h * scale;
     if (h < 40) break;
     parts.push(
-      `<svg x="${PAD}" y="${vy}" width="${o.visualW}" height="${h}" viewBox="${vb}" preserveAspectRatio="xMidYMid meet">${svg.innerHTML}</svg>`,
+      `<svg x="${PAD}" y="${vy}" width="${o.visualW * scale}" height="${h}" viewBox="${b.vb}" preserveAspectRatio="xMidYMid meet">${b.svg.innerHTML}</svg>`,
     );
     vy += h + 16;
   }
@@ -384,7 +420,7 @@ function rasterize(svg: string, w: number, h: number): Promise<string> {
 
 type Parts = "both" | "weight" | "calories";
 
-async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "both"): Promise<CardContent> {
+async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "both", skip: string[] = []): Promise<CardContent> {
   const w = (kg: number) => `${formatWeight(kg, unit)} ${unit}`;
   const muscles = (await api.muscles()).muscles;
   const names = Object.fromEntries(muscles.map((m: Muscle) => [m.id, m.name]));
@@ -401,6 +437,26 @@ async function buildContent(spec: ShareKind, unit: "kg" | "lb", parts: Parts = "
         lines: [],
         visual: (theme, width, h, hide) => (
           <TimeSeriesSvg {...spec.chart} theme={theme} width={width} height={h} hideNumbers={hide} fontScale={2} />
+        ),
+      };
+    }
+    case "standings": {
+      const items = spec.getItems().filter((i) => !skip.includes(i.label));
+      const groups = [...new Set(items.map((i) => i.population))];
+      return {
+        title: spec.title,
+        subtitle:
+          groups.length === 1
+            ? `vs ${groups[0]}`
+            : new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+        stats: [],
+        lines: [],
+        visual: (theme, _w, _h, hide) => (
+          <>
+            {items.map((i) => (
+              <Fragment key={i.label}>{i.render(theme, hide)}</Fragment>
+            ))}
+          </>
         ),
       };
     }

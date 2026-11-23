@@ -94,23 +94,24 @@ export interface TimeSeriesProps {
   onView?: (v: { smooth: { on: boolean; span: number }; showBands: boolean }) => void;
 }
 
-/** Raw vs Trend is remembered across charts and restarts. */
+/** Raw vs Trend is remembered per chart (by `chartKey`) across restarts. A chart you haven't
+ *  set yet starts from the old app-wide choice. */
 const SMOOTH_KEY = "fitledger.chart.trend";
-function storedTrend(): boolean {
+function storedTrend(chart: string): boolean {
   try {
-    return localStorage.getItem(SMOOTH_KEY) === "1";
+    return (localStorage.getItem(`${SMOOTH_KEY}:${chart}`) ?? localStorage.getItem(SMOOTH_KEY)) === "1";
   } catch {
     return false;
   }
 }
 
-/** The Smoothing slider's position is remembered across charts and restarts too. Until you move
- * it, each chart starts from `autoSpan` for its number of points. */
+/** The Smoothing slider's position is remembered per chart too. Until you move it, a chart starts
+ * from the old app-wide position, else `autoSpan` for its number of points. */
 const SPAN_KEY = "fitledger.chart.span";
 const SPAN_STEP = 1 / 600;
-function storedSpan(): number | null {
+function storedSpan(chart: string): number | null {
   try {
-    const raw = localStorage.getItem(SPAN_KEY);
+    const raw = localStorage.getItem(`${SPAN_KEY}:${chart}`) ?? localStorage.getItem(SPAN_KEY);
     const v = raw === null ? NaN : Number(raw);
     return Number.isFinite(v) ? Math.min(SPAN_MAX, Math.max(0, v)) : null;
   } catch {
@@ -118,31 +119,59 @@ function storedSpan(): number | null {
   }
 }
 
+/** The Phases checkbox, remembered per chart. */
+const PHASES_KEY = "fitledger.chart.phases";
+function storedPhases(chart: string): boolean {
+  try {
+    return localStorage.getItem(`${PHASES_KEY}:${chart}`) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 const DAY = 86_400_000;
 
+/** Which chart this is, for remembering its smoothing: its title, else its series. */
+const chartKey = (p: TimeSeriesProps) => p.title ?? p.series.map((s) => s.label).join("+");
+
 export function TimeSeriesChart(props: TimeSeriesProps) {
-  const [smoothOn, setSmoothOnState] = useState(storedTrend);
+  const key = chartKey(props);
+  const [smoothOn, setSmoothOnState] = useState(() => storedTrend(key));
   const setSmoothOn = (on: boolean) => {
     setSmoothOnState(on);
     try {
-      localStorage.setItem(SMOOTH_KEY, on ? "1" : "0");
+      localStorage.setItem(`${SMOOTH_KEY}:${key}`, on ? "1" : "0");
     } catch {
       // Storage unavailable: the choice lasts until the chart closes.
     }
   };
-  const [chosenSpan, setSpanState] = useState(storedSpan);
+  const [chosenSpan, setSpanState] = useState(() => storedSpan(key));
   const setSpan = (v: number) => {
     setSpanState(v);
     try {
-      localStorage.setItem(SPAN_KEY, String(v));
+      localStorage.setItem(`${SPAN_KEY}:${key}`, String(v));
     } catch {
       // Storage unavailable: the choice lasts until the chart closes.
     }
   };
+  // Same chart component showing another chart (e.g. another metric): load that chart's choice.
+  useEffect(() => {
+    setSmoothOnState(storedTrend(key));
+    setSpanState(storedSpan(key));
+    setShowBandsState(storedPhases(key));
+  }, [key]);
   const dragging = useRef(false);
   // The slider stays hidden until asked for, so scrolling past a chart can't change it by accident.
   const [adjusting, setAdjusting] = useState(false);
-  const [showBands, setShowBands] = useState(true);
+  const [showBands, setShowBandsState] = useState(() => storedPhases(key));
+  const setShowBands = (on: boolean) => {
+    setShowBandsState(on);
+    try {
+      localStorage.setItem(`${PHASES_KEY}:${key}`, on ? "1" : "0");
+    } catch {
+      // Storage unavailable: the choice lasts until the chart closes.
+    }
+  };
   const [full, setFull] = useState(false);
   const points = Math.max(0, ...props.series.filter((s) => s.style !== "points").map((s) => s.points.length));
   const maxSpan = spanMax(points);
@@ -411,7 +440,16 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
     return Math.max(...ticks.map((t) => fmt(t).length)) + (props.unit ? props.unit.length + 1 : 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.series, props.unit, props.zero]);
-  const margin = { top: 12 * fs, right: props.hideNumbers ? 12 * fs : (labelChars * 6.6 + 14) * fs, bottom: 24 * fs, left: 8 * fs };
+  // Phase names sit in a strip above the plot (a row per lane), and legends in a row under the
+  // dates, so neither covers the data.
+  const lanes = (["program", "nutrition"] as const).filter((l) => props.bands?.some((b) => b.lane === l));
+  const legendH = props.corridors?.length || props.diverging ? 16 * fs : 0;
+  const margin = {
+    top: lanes.length ? (4 + 13 * lanes.length) * fs : 12 * fs,
+    right: props.hideNumbers ? 12 * fs : (labelChars * 6.6 + 14) * fs,
+    bottom: 24 * fs + legendH,
+    left: 8 * fs,
+  };
 
   const model = useMemo(() => {
     const all = props.series.flatMap((s) => s.points);
@@ -546,7 +584,7 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
               <rect x={a} width={z - a} y={margin.top} height={height - margin.top - margin.bottom} fill={theme.band[lane]} />
               {/* Only label bands wide enough for their name. */}
               {z - a > b.label.length * 6 * fs + 8 && (
-                <text x={a + 4} y={margin.top + 11 * fs + lane * 13 * fs} fontSize={10 * fs} fill={theme.muted}>
+                <text x={a + 4} y={(13 + 13 * lanes.indexOf(b.lane)) * fs} fontSize={10 * fs} fill={theme.muted}>
                   {b.label}
                 </text>
               )}
@@ -579,7 +617,7 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
           </g>
         ))}
         {xLabels.map((l) => (
-          <text key={+l.t} x={x(l.t)} y={height - 6 * fs} fontSize={11 * fs} fill={theme.muted} textAnchor="middle">
+          <text key={+l.t} x={x(l.t)} y={height - legendH - 6 * fs} fontSize={11 * fs} fill={theme.muted} textAnchor="middle">
             {l.text}
           </text>
         ))}
@@ -610,7 +648,7 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
         })}
         {/* Labelled in the plot itself, so exported images say what the band is. */}
         {Boolean(props.corridors?.length) && (
-          <text x={margin.left + 6 * fs} y={height - margin.bottom - 6 * fs} fontSize={11 * fs} fill={theme.muted}>
+          <text x={margin.left} y={height - 4 * fs} fontSize={11 * fs} fill={theme.muted}>
             <tspan fill={theme.categorical[2]} fillOpacity={0.6}>
               ▬
             </tspan>{" "}
@@ -636,11 +674,9 @@ export function TimeSeriesSvg(props: TimeSeriesProps & { smooth: { on: boolean; 
               strokeOpacity={0.75}
               strokeWidth={1.5 * fs}
             />
-            <text x={width - margin.right - 6} y={margin.top + 12 * fs} fontSize={11 * fs} fill={theme.muted} textAnchor="end">
-              <tspan fill={div.above}>■</tspan> {props.diverging!.aboveLabel} ↑
-            </text>
-            <text x={width - margin.right - 6} y={height - margin.bottom - 6 * fs} fontSize={11 * fs} fill={theme.muted} textAnchor="end">
-              <tspan fill={div.below}>■</tspan> {props.diverging!.belowLabel} ↓
+            <text x={width - margin.right} y={height - 4 * fs} fontSize={11 * fs} fill={theme.muted} textAnchor="end">
+              <tspan fill={div.above}>■</tspan> {props.diverging!.aboveLabel} ↑ <tspan fill={div.below}>■</tspan>{" "}
+              {props.diverging!.belowLabel} ↓
             </text>
           </>
         )}

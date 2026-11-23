@@ -24,7 +24,7 @@ import { TimeSeriesChart, type Band, type Point, type Series } from "../charts/T
 import { useChartTheme, type ChartTheme } from "../charts/theme";
 import { BodyFatTab } from "../components/BodyFatTab";
 import { Modal } from "../components/Modal";
-import { CompareWith, ProfileHint, Standing, useNormProfile } from "../components/Standing";
+import { CompareCard, ProfileHint, Standing, useNormProfile } from "../components/Standing";
 import { ShareButton } from "../share/ShareDialog";
 import { formatDate, formatTime, nowLocal, parseLocal, toUnit } from "../format";
 import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
@@ -533,9 +533,7 @@ function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
         )}
       </section>
       {norm && normValues.length > 0 && loaded && (
-        <section className="card">
-          <h2 className="section-title">How you compare</h2>
-          <CompareWith />
+        <CompareCard>
           {who ? (
             <Standing
               metric={norm}
@@ -553,7 +551,7 @@ function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
             <ProfileHint />
           )}
           <p className="muted small">Against US adults of your sex and age group (CDC, 2015–2018).</p>
-        </section>
+        </CompareCard>
       )}
     </>
   );
@@ -598,7 +596,22 @@ function BodyweightTab({ mode }: { mode: Mode }) {
   // Calories on the same panel: energy balance from the weight trend over a window, and what was logged.
   const [energy, setEnergy] = useState<EnergyPoint[]>([]);
   const [days, setDays] = useState<DietDay[]>([]);
-  const [window_, setWindow] = useState(14);
+  // Remembered on this device, like Goal pace.
+  const [window_, setWindowState] = useState(() => {
+    try {
+      return [7, 14, 28].find((d) => String(d) === localStorage.getItem("energyWindow")) ?? 14;
+    } catch {
+      return 14;
+    }
+  });
+  const setWindow = (d: number) => {
+    setWindowState(d);
+    try {
+      localStorage.setItem("energyWindow", String(d));
+    } catch {
+      /* storage unavailable */
+    }
+  };
   useEffect(() => {
     if (mode === "charts") api.energyBalance(window_).then(setEnergy);
   }, [mode, window_]);
@@ -817,9 +830,7 @@ function BodyweightTab({ mode }: { mode: Mode }) {
       )}
       <PhaseCompare goals={goals} rows={rows} unit={unit} />
       {compareKg.length > 0 && loaded && (
-        <section className="card">
-          <h2 className="section-title">How you compare</h2>
-          <CompareWith />
+        <CompareCard>
           {who ? (
             <>
               <Standing
@@ -844,7 +855,7 @@ function BodyweightTab({ mode }: { mode: Mode }) {
           ) : (
             <ProfileHint />
           )}
-        </section>
+        </CompareCard>
       )}
       <PhaseSplitCard rows={rows} />
     </>

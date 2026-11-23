@@ -4,7 +4,7 @@ import { usePrefs } from "../App";
 import { TimeSeriesChart, type Series } from "../charts/TimeSeriesChart";
 import { bodyFatSeries, type Pt, type Sex } from "../bodyfat";
 import { toUnit } from "../format";
-import { COMPARE_CHANGED, CompareWith, parseAges, Standing, whoOf } from "./Standing";
+import { COMPARE_CHANGED, CompareCard, parseAges, Standing, whoOf } from "./Standing";
 
 const CM_PER_IN = 2.54;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -152,9 +152,7 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
         )}
       </section>
       {compare.length > 0 && who && (
-        <section className="card">
-          <h2 className="section-title">How you compare</h2>
-          <CompareWith />
+        <CompareCard>
           {compare.map((c) => (
             <Standing key={c.metric} {...c} who={who} />
           ))}
@@ -162,7 +160,7 @@ export function BodyFatTab({ mode }: { mode: "data" | "charts" }) {
             Against US adults of your sex and {ages.length ? "chosen age groups" : "age"}, measured by DXA scan. Scale and tape estimates read differently from DXA (often a few
             points lower body fat), so treat these as a rough guide.
           </p>
-        </section>
+        </CompareCard>
       )}
       {!who && (s.measured.length > 0 || s.navy.length > 0) && (
         <p className="muted small">Set sex, height and birth year under Data & metrics › Body to see how you compare with other adults.</p>
