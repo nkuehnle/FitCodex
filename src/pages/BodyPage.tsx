@@ -37,7 +37,7 @@ import { isPumped, pumpRatio } from "../pump";
 const KG_PER_LB = 0.45359237;
 type Mode = "data" | "charts";
 const DATA_TABS = { weighins: "Weigh-ins", body: "Body", scans: "Scans", calories: "Calories" } as const;
-const CHART_TABS = { weight: "Weight", comp: "Body comp", parts: "Body parts", calories: "Calories", recovery: "Recovery" } as const;
+const CHART_TABS = { weight: "Weight & calories", body: "Body", recovery: "Recovery" } as const;
 type DataTab = keyof typeof DATA_TABS;
 type ChartTab = keyof typeof CHART_TABS;
 
@@ -46,7 +46,12 @@ type ChartTab = keyof typeof CHART_TABS;
 function resolve(path: string[]): { mode: Mode; tab: string; part?: string } {
   const [a, b, c] = path;
   if (a === "data") return { mode: "data", tab: b && b in DATA_TABS ? b : "weighins", part: c };
-  if (a === "charts") return { mode: "charts", tab: b && b in CHART_TABS ? b : "weight", part: c };
+  if (a === "charts") {
+    // Earlier chart tabs: body comp and body parts are now Body, calories are under Weight.
+    const merged: Record<string, string> = { comp: "body", parts: "body", calories: "weight" };
+    const tab = b ? (merged[b] ?? b) : "weight";
+    return { mode: "charts", tab: tab in CHART_TABS ? tab : "weight", part: c };
+  }
   const legacy: Record<string, [Mode, string]> = {
     weight: ["data", "weighins"],
     diet: ["data", "calories"],
@@ -55,7 +60,7 @@ function resolve(path: string[]): { mode: Mode; tab: string; part?: string } {
     parts: ["data", "body"],
     recovery: ["charts", "recovery"],
   };
-  const [mode, tab] = legacy[a] ?? ["data", "weighins"];
+  const [mode, tab] = legacy[a] ?? ["charts", "weight"];
   return { mode, tab, part: a === "parts" ? b : undefined };
 }
 
@@ -73,7 +78,7 @@ export default function BodyPage({ path }: { path: string[] }) {
       </div>
       <PendingWeighIns key={`p${rev}`} onChanged={() => setRev((r) => r + 1)} />
       <div className="segmented">
-        {(["data", "charts"] as Mode[]).map((m) => (
+        {(["charts", "data"] as Mode[]).map((m) => (
           <a key={m} href={`#/body/${m}`} className={mode === m ? "seg-link active" : "seg-link"}>
             {m === "data" ? "Data & metrics" : "Charts"}
           </a>
@@ -107,15 +112,22 @@ export default function BodyPage({ path }: { path: string[] }) {
         </>
       ) : (
         <>
-          {(tab as ChartTab) === "weight" && <BodyweightTab key={rev} mode="charts" />}
-          {(tab as ChartTab) === "comp" && (
+          {(tab as ChartTab) === "weight" && (
             <>
-              <BodyFatTab key={`f${rev}`} mode="charts" />
-              <InBodyTab key={`s${rev}`} mode="charts" />
+              <BodyweightTab key={rev} mode="charts" />
+              <DietTab mode="charts" />
             </>
           )}
-          {(tab as ChartTab) === "parts" && <BodyPartsTab part={part} mode="charts" />}
-          {(tab as ChartTab) === "calories" && <DietTab mode="charts" />}
+          {(tab as ChartTab) === "body" &&
+            (part ? (
+              <BodyPartsTab part={part} mode="charts" />
+            ) : (
+              <>
+                <BodyFatTab key={`f${rev}`} mode="charts" />
+                <InBodyTab key={`s${rev}`} mode="charts" />
+                <BodyPartsTab mode="charts" />
+              </>
+            ))}
           {(tab as ChartTab) === "recovery" && <RecoveryTab />}
         </>
       )}
@@ -384,7 +396,7 @@ function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
   const sel = parts.find((p) => p.id === part);
   const { who, loaded } = useNormProfile();
   const theme = useChartTheme();
-  const base = mode === "data" ? "#/body/data/body" : "#/body/charts/parts";
+  const base = mode === "data" ? "#/body/data/body" : "#/body/charts/body";
 
   if (!sel)
     return (
@@ -474,7 +486,7 @@ function BodyPartsTab({ part, mode }: { part?: string; mode: Mode }) {
           </button>
           </div>
           {mine.length > 1 && (
-            <a className="small" href={`#/body/charts/parts/${sel.id}`}>
+            <a className="small" href={`#/body/charts/body/${sel.id}`}>
               Chart ›
             </a>
           )}

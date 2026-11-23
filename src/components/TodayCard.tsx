@@ -96,7 +96,7 @@ export function TodayCard() {
             </span>
           )}
         </a>
-        <a className="today-stat" href={goal && !goal.goal ? "#/body/data/weighins" : "#/body/charts/calories"}>
+        <a className="today-stat" href={goal && !goal.goal ? "#/body/data/weighins" : "#/body/charts/weight"}>
           {goal && !goal.goal ? (
             <>
               <span className="small muted">No goal set</span>

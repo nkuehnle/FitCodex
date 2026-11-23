@@ -107,9 +107,9 @@ from **Settings → Import, export & backup → Restore…**.
 
 ### Body
 
-Measure has two tabs: **Data & metrics** (weigh-ins and your goal, your profile and body
-measurements, scans, calories) and **Charts** (weight, body composition, body parts, calories,
-recovery).
+Measure has two tabs: **Charts** (weight and calories, body composition and body parts, recovery)
+and **Data & metrics** (weigh-ins and your goal, your profile and body measurements, scans,
+calories).
 
 - **Bodyweight** with a 7-day average, change per week, a goal (cut, maintain or gain) with a
   weekly target, and weigh-in reminders on the days and times you choose.
