@@ -1855,7 +1855,6 @@ function DietTab({ mode }: { mode: Mode }) {
   const tdee = e.filter((p) => p.tdee_kcal != null).map((p) => ({ t: d(p.date), v: Math.round(p.tdee_kcal!) }));
   const intake = days.filter((x) => x.calories != null && inRange(x.date, range)).map((x) => ({ t: d(x.date), v: x.calories! }));
   const proteinPts = days.filter((x) => x.protein_g != null && inRange(x.date, range)).map((x) => ({ t: d(x.date), v: x.protein_g! }));
-  const trend = e.map((p) => ({ t: d(p.date), v: toUnit(p.trend_kg, unit) }));
   const bands = useMemo(() => bandsOf(phases), [phases]);
 
   const logged = days.filter((x) => x.calories != null || x.protein_g != null).reverse();
@@ -1938,16 +1937,6 @@ function DietTab({ mode }: { mode: Mode }) {
           diverging={{ aboveLabel: "Surplus", belowLabel: "Deficit" }}
           yStep={250}
           yFormat={(v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString()}
-        />
-        <div className="section-label">Trend weight</div>
-        <TimeSeriesChart
-          title="Trend weight"
-          series={[{ id: "trend", label: "Trend", points: trend }]}
-          unit={unit}
-          bands={bands}
-          height={160}
-          showControls={false}
-          smooth={{ on: false, span: 0.3 }}
         />
         {tdee.length > 0 && (
           <>
