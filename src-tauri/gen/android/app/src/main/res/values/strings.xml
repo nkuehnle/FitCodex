@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">"FitCodex"</string>
     <string name="main_activity_title">"FitCodex"</string>
+    <string name="widget_description">"Weight, this week's workouts, and one-tap start and weigh-in"</string>
 </resources>

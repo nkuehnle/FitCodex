@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type DayHealth, type EnergyPoint, type FatigueReport, type WeighInRow } from "../api";
 import { latestRecoveryText } from "../recovery";
 import { usePrefs } from "../App";
@@ -8,6 +8,7 @@ import { GOAL_TEXT, goalStatus, type GoalInfo } from "../goal";
 import { isWeighDay, loadWeighInPlan, type WeighInPlan } from "../weighIn";
 import { QuickScaleButton, useQuickScale } from "./ScaleTools";
 import { HEALTH_SYNCED } from "./WearablesCard";
+import { refreshWidget, takePendingWeighIn, WIDGET_WEIGH_IN } from "../widget";
 
 const KG_PER_LB = 0.45359237;
 const signed = (v: number, digits = 1) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(v).toFixed(digits)}`;
@@ -26,7 +27,22 @@ export function TodayCard() {
   const [backupFailed, setBackupFailed] = useState(false);
   const [toCheck, setToCheck] = useState(0);
   const [fatigue, setFatigue] = useState<FatigueReport | null>(null);
+  // The widget's ⚖ Weigh in: start the scale weigh-in, or put the cursor in the weight box.
+  const [weighNow, setWeighNow] = useState(takePendingWeighIn);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const on = () => takePendingWeighIn() && setWeighNow(true);
+    window.addEventListener(WIDGET_WEIGH_IN, on);
+    return () => window.removeEventListener(WIDGET_WEIGH_IN, on);
+  }, []);
+  useEffect(() => {
+    if (weighNow && scale === null && rows) {
+      input.current?.focus();
+      setWeighNow(false);
+    }
+  }, [weighNow, scale, rows]);
   const load = () => {
+    refreshWidget();
     api.dayHealth().then(setDays);
     api.fatigue().then(setFatigue);
     api.weighIns(false).then(setRows);
@@ -132,10 +148,11 @@ export function TodayCard() {
             {loggedToday ? "Weighed in today ✓" : weighDay ? "Weigh-in day" : "Weigh-in"}
           </span>
           {scale ? (
-            <QuickScaleButton onSaved={load} />
+            <QuickScaleButton onSaved={load} autoOpen={weighNow} onAutoOpened={() => setWeighNow(false)} />
           ) : (
           <div className="row tight">
             <input
+              ref={input}
               className="input small-input"
               inputMode="decimal"
               placeholder={unit}

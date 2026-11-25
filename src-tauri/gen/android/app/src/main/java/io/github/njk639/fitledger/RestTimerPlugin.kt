@@ -18,6 +18,7 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
 /**
@@ -248,6 +249,11 @@ class NudgeArgs {
 }
 
 @InvokeArg
+class WidgetArgs {
+    var json: String = ""
+}
+
+@InvokeArg
 class StatusArgs {
     var title: String = "Workout in progress"
     var text: String = ""
@@ -358,6 +364,25 @@ class RestTimerPlugin(private val activity: Activity) : Plugin(activity) {
         val a = invoke.parseArgs(DoneArgs::class.java)
         DayReminder.done(activity, a.kind, a.date)
         invoke.resolve()
+    }
+
+    /** New numbers for the home-screen widget (a JSON snapshot from widget.ts). */
+    @Command
+    fun widget(invoke: Invoke) {
+        val a = invoke.parseArgs(WidgetArgs::class.java)
+        HomeWidget.save(activity, a.json)
+        invoke.resolve()
+    }
+
+    /** The widget button that opened the app, once: `{ action, templateId }`, or no action. */
+    @Command
+    fun takeWidgetAction(invoke: Invoke) {
+        val out = JSObject()
+        HomeWidget.takeAction(activity)?.let { (action, template) ->
+            out.put("action", action)
+            out.put("templateId", template)
+        }
+        invoke.resolve(out)
     }
 
     /** Copies an image from the app's cache into the gallery (Pictures/FitCodex). */

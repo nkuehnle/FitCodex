@@ -12,6 +12,7 @@ import StatsPage from "./pages/StatsPage";
 import CardioPage from "./pages/CardioPage";
 import { loadWeighInPlan, syncWeighInReminder } from "./weighIn";
 import { syncWorkoutReminder } from "./workoutReminder";
+import { handleWidgetAction, refreshWidget } from "./widget";
 import WorkoutPage from "./pages/WorkoutPage";
 
 export type Theme = "system" | "light" | "dark";
@@ -100,7 +101,14 @@ export default function App() {
     const sync = () => autoSyncHealthConnect().catch(() => {});
     const t2 = setTimeout(sync, 3000);
     const t3 = setInterval(sync, 30 * 60_000);
-    const onVisible = () => document.visibilityState === "visible" && sync();
+    // Home-screen widget: act on the button that opened the app, and keep its numbers fresh.
+    handleWidgetAction(navigate);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return refreshWidget(true);
+      sync();
+      refreshWidget();
+      handleWidgetAction(navigate);
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearTimeout(t);
@@ -111,6 +119,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     api.activeWorkout().then(setActive);
+    refreshWidget();
   }, [route]);
   // Opening the app (or tapping the rest notification) with a workout in progress goes straight to it.
   useEffect(() => {

@@ -1414,6 +1414,24 @@ fn day_reminder(app: tauri::AppHandle, kind: String, from: String, minutes: Vec<
     native_call(&app, "dayReminder", serde_json::json!({ "kind": kind, "from": from, "minutes": minutes, "titles": titles, "texts": texts }))
 }
 
+/// Android home-screen widget: saves its numbers (a JSON snapshot made in widget.ts) and redraws it.
+#[tauri::command]
+fn home_widget(app: tauri::AppHandle, json: String) -> CmdResult<()> {
+    native_call(&app, "widget", serde_json::json!({ "json": json }))
+}
+
+/// The widget button that opened the app (`{ action, templateId }`), once; null when none.
+#[tauri::command]
+fn take_widget_action(app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
+    #[cfg(target_os = "android")]
+    if let Some(t) = app.try_state::<RestTimer>() {
+        let v = t.0.run_mobile_plugin::<serde_json::Value>("takeWidgetAction", serde_json::json!({})).map_err(|e| e.to_string())?;
+        return Ok(v.get("action").filter(|a| !a.is_null()).map(|_| v.clone()).unwrap_or(serde_json::Value::Null));
+    }
+    let _ = app;
+    Ok(serde_json::Value::Null)
+}
+
 // ---- Settings ---------------------------------------------------------------------------------------
 
 #[tauri::command]
@@ -1580,7 +1598,7 @@ pub fn run() {
             preview_inbody_csv, import_inbody_csv, diet_days, save_diet_day, energy_balance,
             body_parts, measurements, add_measurement, delete_measurement,
             export_file, backup_to, inspect_backup, restore_from, db_info, save_base64, copy_png,
-            rest_android_status, rest_android_rest, rest_android_clear, rest_android_nudges, day_reminder, typical_duration, auto_backup, drive_connect, drive_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
+            rest_android_status, rest_android_rest, rest_android_clear, rest_android_nudges, day_reminder, home_widget, take_widget_action, typical_duration, auto_backup, drive_connect, drive_backup, cardio_sessions, log_cardio, health_connect_status, health_connect_connect, health_connect_open,
             health_connect_sync, import_fit, day_health, fatigue,
             share_export, share_backup, share_png, save_png_to_photos, read_inbody_image, stage_backup,
             counts, get_setting, set_setting,

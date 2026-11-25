@@ -56,6 +56,8 @@ from **Settings → Import, export & backup → Restore…**.
 - **Reminders when a workout goes quiet:** a notification to mark off your next set if it's been
   a while (allowing for the reps and rest), to finish once every set is ticked, and to finish a
   little after your usual length for that workout. Finishing with unticked sets asks first.
+- **Home-screen widget (Android):** your weight and pace against your goal, this week's workouts and
+  your streak, with one-tap **Start** for today's planned workout (or Resume) and **⚖ Weigh in**.
 - **Workout reminders** on scheduled training days and/or rest days with an optional activity.
 - **Suggested weights** fill the empty boxes. Progression hints (go up, repeat, or deload after
   repeated misses) and a next-time "up / hold / down" note for each exercise.

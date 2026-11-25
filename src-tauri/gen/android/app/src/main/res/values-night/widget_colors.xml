@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget, the app's own dark palette (styles.css). -->
+<resources>
+    <color name="widget_surface">#FF181B21</color>
+    <color name="widget_soft">#FF2A2648</color>
+    <color name="widget_text">#FFE7E9EE</color>
+    <color name="widget_muted">#FF98A0AC</color>
+    <color name="widget_accent">#FF9A8FFF</color>
+    <color name="widget_on_accent">#FF0F1115</color>
+    <color name="widget_ok">#FF5FD07C</color>
+    <color name="widget_warn">#FFF0A33A</color>
+</resources>

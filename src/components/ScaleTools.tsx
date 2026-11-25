@@ -71,9 +71,25 @@ export function useQuickScale(): ScaleProfile | null | undefined {
 }
 
 /** One-tap Bluetooth weigh-in on the scale chosen in Settings; nothing when weigh-ins are typed in. */
-export function QuickScaleButton({ onSaved, label = "⚖ Weigh in" }: { onSaved: (msg: string) => void; label?: string }) {
+export function QuickScaleButton({
+  onSaved,
+  label = "⚖ Weigh in",
+  autoOpen = false,
+  onAutoOpened,
+}: {
+  onSaved: (msg: string) => void;
+  label?: string;
+  /** Starts the weigh-in right away (the home-screen widget's ⚖ Weigh in), then calls onAutoOpened. */
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
+}) {
   const profile = useQuickScale();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!autoOpen || !profile) return;
+    setOpen(true);
+    onAutoOpened?.();
+  }, [autoOpen, profile]);
   if (!profile) return null;
   return (
     <>

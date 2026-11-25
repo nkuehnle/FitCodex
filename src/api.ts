@@ -897,6 +897,10 @@ export const api = {
    *  `minutes[i]` past midnight (-1 for none), with that day's title and text. */
   dayReminder: (kind: "weigh_in" | "workout", from: string, minutes: number[], titles: string[], texts: string[]) =>
     invoke<void>("day_reminder", { kind, from, minutes, titles, texts }),
+  /** Android only: the home-screen widget's numbers (a JSON WidgetSnapshot, see widget.ts). */
+  widget: (json: string) => invoke<void>("home_widget", { json }),
+  /** Android only: the widget button that opened the app, once (null when none). */
+  takeWidgetAction: () => invoke<{ action: "start" | "weigh_in"; templateId: number } | null>("take_widget_action"),
   cardioSessions: () => invoke<CardioSession[]>("cardio_sessions"),
   logCardio: (entry: CardioEntry) => invoke<number>("log_cardio", { entry }),
   /** Android only: Health Connect (Garmin Connect, Fitbit, Oura, … write there). */
