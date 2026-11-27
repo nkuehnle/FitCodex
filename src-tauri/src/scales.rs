@@ -239,7 +239,8 @@ fn session_for(db: &Db, profile: &str, unit_lb: bool) -> fitledger_core::Result<
     let (Some(age), Some(height_cm)) = (p.age, p.height_cm) else {
         return Err(fitledger_core::Error::Format("set your sex, height and birth year under Body → Body comp first: the scale needs them".into()));
     };
-    Ok((QnSession::new(QnConfig { bluetooth, unit_lb, female: p.female, age, height_cm }), profile))
+    let recent_weight_kg = db.weigh_ins(false)?.last().map(|w| w.weight_kg);
+    Ok((QnSession::new(QnConfig { bluetooth, unit_lb, female: p.female, age, height_cm, recent_weight_kg }), profile))
 }
 
 /// Finds scales nearby for a profile: { devices: [...], others: [...] } (see the Android plugin),

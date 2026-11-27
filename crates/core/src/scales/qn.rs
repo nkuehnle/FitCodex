@@ -56,6 +56,9 @@ pub struct QnConfig {
     pub female: bool,
     pub age: u8,
     pub height_cm: f64,
+    /// Your latest weight: the long-info-frame scales (Arboleaf CS10K and others) take it as the
+    /// weight they recognise you by, and measure body composition only for a match.
+    pub recent_weight_kg: Option<f64>,
 }
 
 /// The scale's own results.
@@ -244,6 +247,12 @@ pub struct QnSession {
     c15: Option<Vec<u8>>,
     stored: Vec<Vec<u8>>,
     b1_parts: Vec<Vec<u8>>,
+    /// A 20-byte `0x12`: the vendor-app sequence (see `on_notification`).
+    long_info: bool,
+    /// Long info: the profile went out, START waits for the scale's answer.
+    start_pending: bool,
+    /// Long info: the second weight frame goes out on the scale's `a3` to the first.
+    second_weight_pending: bool,
 }
 
 impl QnSession {
@@ -261,6 +270,9 @@ impl QnSession {
             c15: None,
             stored: Vec::new(),
             b1_parts: Vec::new(),
+            long_info: false,
+            start_pending: false,
+            second_weight_pending: false,
         }
     }
 
@@ -297,6 +309,22 @@ impl QnSession {
         with_checksum(vec![0x22, 0x06, self.protocol, m1, m2])
     }
 
+    /// `a2 06 <slot> <kg × 100, BE>`: sets the weight the scale recognises this user by.
+    pub fn weight_frame(&self, kg: f64) -> Vec<u8> {
+        let [w1, w2] = ((kg * 100.0).round().clamp(0.0, 65535.0) as u16).to_be_bytes();
+        with_checksum(vec![0xa2, 0x06, self.cfg.bluetooth.slot, w1, w2])
+    }
+
+    /// Long info: START, then the first of two weight frames (the second follows the scale's `a3`).
+    fn send_start(&mut self, step: &mut QnStep) {
+        self.start_pending = false;
+        step.writes.push(self.start_frame());
+        if let Some(kg) = self.cfg.recent_weight_kg {
+            step.writes.push(self.weight_frame(kg));
+            self.second_weight_pending = true;
+        }
+    }
+
     fn ack_frame(&self) -> Vec<u8> {
         with_checksum(vec![0x1f, 0x05, self.protocol, 0x10])
     }
@@ -307,6 +335,8 @@ impl QnSession {
         let mut step = QnStep::default();
         if self.ready && !self.profile_sent {
             self.send_profile(&mut step);
+        } else if self.start_pending {
+            self.send_start(&mut step);
         }
         if let Some(r) = self.result.take() {
             step.readings.push(r);
@@ -317,8 +347,12 @@ impl QnSession {
 
     fn send_profile(&mut self, step: &mut QnStep) {
         step.writes.push(self.profile_frame());
-        step.writes.push(self.start_frame());
         self.profile_sent = true;
+        if self.long_info {
+            self.start_pending = true;
+        } else {
+            step.writes.push(self.start_frame());
+        }
     }
 
     pub fn on_notification(&mut self, d: &[u8], now_unix: i64) -> QnStep {
@@ -337,6 +371,7 @@ impl QnSession {
                 if d.len() > 2 {
                     self.protocol = d[2];
                 }
+                self.long_info = d.len() >= 20 && d[1] as usize == d.len();
                 if d.len() > 10 && d.len() < 18 {
                     self.divisor = if d[10] & 0x01 != 0 { 100.0 } else { 10.0 };
                 }
@@ -348,9 +383,18 @@ impl QnSession {
                     self.percent = d[3] & 0x01 != 0;
                 }
                 step.writes.push(self.time_frame(now_unix));
-                step.writes.push(with_checksum(vec![0xa2, 0x06, 0x01, 0x32, self.cfg.age.max(1)]));
+                // openScale's "age" A2, which by the vendor SDK sets a recognition weight of
+                // over 128 kg; the long-info scales then never measure body composition.
+                if !self.long_info {
+                    step.writes.push(with_checksum(vec![0xa2, 0x06, 0x01, 0x32, self.cfg.age.max(1)]));
+                }
             }
             0x21 if !self.profile_sent => self.send_profile(&mut step),
+            0xa1 if self.start_pending => self.send_start(&mut step),
+            0xa3 if self.second_weight_pending => {
+                self.second_weight_pending = false;
+                step.writes.extend(self.cfg.recent_weight_kg.map(|kg| self.weight_frame(kg)));
+            }
             0xa1 if d.len() >= 5 && d[2] == 0x02 => {
                 if d[4] == 0 {
                     step.notes.push(format!(
@@ -555,6 +599,7 @@ mod tests {
             female: false,
             age: 34,
             height_cm: 180.0,
+            recent_weight_kg: None,
         }
     }
 
@@ -635,6 +680,34 @@ mod tests {
         // Asked once only; and a refusal is explained.
         assert!(s.on_notification(&f(&[0x21, 0x05, 0xff, 0x00]), now).writes.is_empty());
         assert!(s.on_notification(&f(&[0xa1, 0x06, 0x02, 0x01, 0x00]), now).notes[0].contains("user_key"));
+    }
+
+    #[test]
+    fn long_info_scale_gets_the_vendor_app_sequence() {
+        // Frames from an Arboleaf CS10K (firmware 81) that never measured body composition.
+        let mut s = QnSession::new(QnConfig { recent_weight_kg: Some(80.5), ..cfg() });
+        let rx = |s: &mut QnSession, h: &str| s.on_notification(&parse_hex(h).unwrap(), 0);
+        rx(&mut s, "12 14 ff 47 15 1f 00 07 ff 23 0f 51 00 00 05 03 e0 6f eb 6b");
+        let st = rx(&mut s, "14 0f ff 01 00 01 00 00 19 01 fd 08 01 01 45");
+        assert_eq!(st.writes.len(), 1, "time only, no 128 kg age A2");
+        assert_eq!(st.writes[0][0], 0x20);
+        let st = rx(&mut s, "21 07 ff 01 64 2d b9");
+        assert_eq!(st.writes, vec![s.profile_frame()], "START waits for the answer");
+        let st = rx(&mut s, "a1 07 ff 00 00 00 a7");
+        // 80.5 kg = 0x1f72.
+        assert_eq!(st.writes, vec![s.start_frame(), with_checksum(vec![0xa2, 0x06, 0x01, 0x1f, 0x72])]);
+        let st = rx(&mut s, "a3 04 01 a8");
+        assert_eq!(st.writes, vec![with_checksum(vec![0xa2, 0x06, 0x01, 0x1f, 0x72])]);
+        assert!(rx(&mut s, "a3 04 01 a8").writes.is_empty());
+        assert!(rx(&mut s, "21 07 ff 01 64 2d b9").writes.is_empty());
+
+        // No answer to the profile: START goes out when the scale goes quiet.
+        let mut s = QnSession::new(cfg());
+        rx(&mut s, "12 14 ff 47 15 1f 00 07 ff 23 0f 51 00 00 05 03 e0 6f eb 6b");
+        rx(&mut s, "14 0f ff 01 00 01 00 00 19 01 fd 08 01 01 45");
+        rx(&mut s, "21 07 ff 01 64 2d b9");
+        assert_eq!(s.on_idle().writes, vec![s.start_frame()], "no weight known: START alone");
+        assert!(s.on_idle().writes.is_empty());
     }
 
     #[test]
